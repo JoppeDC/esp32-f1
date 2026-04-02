@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>F1 Sensor</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <div class="logo">
+      <span class="logo-f1">F1</span>
+      <span class="logo-sensor">SENSOR</span>
+    </div>
+    <div class="connection-pill" id="conn-pill">connecting…</div>
+  </header>
+
+  <main>
+
+    <!-- ── Status card ─────────────────────────────────────────────────── -->
+    <section class="card" id="status-card">
+      <h2>Live Status</h2>
+
+      <div class="flag-display" id="flag-display">
+        <div class="flag-indicator" id="flag-indicator"></div>
+        <div class="flag-info">
+          <div class="flag-name" id="flag-name">—</div>
+          <div class="flag-sub" id="flag-sub">waiting for data</div>
+        </div>
+      </div>
+
+      <div class="stat-grid">
+        <div class="stat">
+          <span class="stat-label">Session</span>
+          <span class="stat-value" id="stat-session">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Session status</span>
+          <span class="stat-value" id="stat-session-status">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Track raw</span>
+          <span class="stat-value mono" id="stat-track-raw">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">F1 connection</span>
+          <span class="stat-value" id="stat-signalr">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Device IP</span>
+          <span class="stat-value mono" id="stat-ip">—</span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">WiFi RSSI</span>
+          <span class="stat-value" id="stat-rssi">—</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Settings card ───────────────────────────────────────────────── -->
+    <section class="card" id="settings-card">
+      <h2>Settings</h2>
+      <form id="settings-form">
+
+        <div class="field">
+          <label for="led-count">LED count</label>
+          <div class="input-row">
+            <input type="number" id="led-count" name="led_count"
+                   min="1" max="500" step="1" value="60" />
+            <span class="unit">LEDs</span>
+          </div>
+          <p class="hint">Number of WS2812B LEDs on your strip.</p>
+        </div>
+
+        <div class="field">
+          <label for="brightness">Brightness</label>
+          <div class="slider-row">
+            <input type="range" id="brightness" name="brightness"
+                   min="0" max="255" step="1" value="128" />
+            <span class="slider-value" id="brightness-val">128</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="delay">Delay</label>
+          <div class="slider-row">
+            <input type="range" id="delay" name="delay_ms_sec"
+                   min="0" max="120" step="1" value="45" />
+            <span class="slider-value" id="delay-val">45 s</span>
+          </div>
+          <p class="hint">
+            Delay between the F1 data feed and LED change.
+            Set this to match your broadcast delay (~45 s for most streams).
+          </p>
+        </div>
+
+        <div class="button-row">
+          <button type="submit" class="btn btn-primary" id="save-btn">Save</button>
+          <span class="save-feedback" id="save-feedback"></span>
+        </div>
+
+      </form>
+    </section>
+
+    <!-- ── Device card ─────────────────────────────────────────────────── -->
+    <section class="card" id="device-card">
+      <h2>Device</h2>
+      <div class="button-row">
+        <button class="btn btn-danger" id="restart-btn">Restart</button>
+        <button class="btn btn-ghost" id="wifi-reset-btn">Reset WiFi</button>
+      </div>
+      <p class="hint" style="margin-top:0.75rem">
+        "Reset WiFi" forgets your network credentials and opens the setup portal on next boot.
+      </p>
+    </section>
+
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

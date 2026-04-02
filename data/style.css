@@ -1,0 +1,293 @@
+/* ── Reset & base ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --f1-red:      #E10600;
+  --f1-red-dim:  #7a0300;
+  --bg:          #0d0d0d;
+  --surface:     #1a1a1a;
+  --surface2:    #242424;
+  --border:      #2e2e2e;
+  --text:        #e8e8e8;
+  --text-muted:  #888;
+  --green:       #00c853;
+  --yellow:      #ffd600;
+  --orange:      #ff8c00;
+  --blue:        #2979ff;
+  --radius:      10px;
+  --font:        'Inter', 'Helvetica Neue', Arial, sans-serif;
+}
+
+body {
+  font-family: var(--font);
+  background:  var(--bg);
+  color:       var(--text);
+  min-height:  100vh;
+  line-height: 1.5;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────────── */
+header {
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  padding:         1rem 1.5rem;
+  border-bottom:   1px solid var(--border);
+  background:      var(--surface);
+  position:        sticky;
+  top:             0;
+  z-index:         10;
+}
+
+.logo { display: flex; align-items: baseline; gap: 0.35rem; }
+.logo-f1 {
+  font-size:   1.5rem;
+  font-weight: 900;
+  color:       var(--f1-red);
+  letter-spacing: -0.02em;
+}
+.logo-sensor {
+  font-size:      0.75rem;
+  font-weight:    600;
+  letter-spacing: 0.18em;
+  color:          var(--text-muted);
+  text-transform: uppercase;
+}
+
+.connection-pill {
+  font-size:     0.7rem;
+  font-weight:   600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding:       0.25rem 0.75rem;
+  border-radius: 999px;
+  border:        1px solid var(--border);
+  color:         var(--text-muted);
+  transition:    all 0.3s;
+}
+.connection-pill.connected {
+  border-color: var(--green);
+  color:        var(--green);
+}
+.connection-pill.error {
+  border-color: var(--f1-red);
+  color:        var(--f1-red);
+}
+
+/* ── Main layout ───────────────────────────────────────────────────────────── */
+main {
+  max-width: 680px;
+  margin:    0 auto;
+  padding:   1.5rem 1rem 3rem;
+  display:   flex;
+  flex-direction: column;
+  gap:       1.25rem;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────────── */
+.card {
+  background:    var(--surface);
+  border:        1px solid var(--border);
+  border-radius: var(--radius);
+  padding:       1.5rem;
+}
+.card h2 {
+  font-size:      0.65rem;
+  font-weight:    700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color:          var(--text-muted);
+  margin-bottom:  1.25rem;
+}
+
+/* ── Flag display ──────────────────────────────────────────────────────────── */
+.flag-display {
+  display:     flex;
+  align-items: center;
+  gap:         1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.flag-indicator {
+  width:         56px;
+  height:        56px;
+  border-radius: 50%;
+  background:    var(--surface2);
+  border:        2px solid var(--border);
+  flex-shrink:   0;
+  transition:    background 0.4s, border-color 0.4s, box-shadow 0.4s;
+}
+
+/* Flag colours */
+.flag-indicator.IDLE     { background: #3a0000; border-color: #5a0000; }
+.flag-indicator.CLEAR    { background: var(--green);  border-color: var(--green);
+                            box-shadow: 0 0 18px 4px rgba(0,200,83,0.35); }
+.flag-indicator.YELLOW   { background: var(--yellow); border-color: var(--yellow);
+                            box-shadow: 0 0 18px 4px rgba(255,214,0,0.35); }
+.flag-indicator.VSC      { background: var(--yellow); border-color: var(--yellow);
+                            box-shadow: 0 0 18px 4px rgba(255,214,0,0.25); }
+.flag-indicator.SC       { background: var(--orange); border-color: var(--orange);
+                            box-shadow: 0 0 18px 4px rgba(255,140,0,0.35); }
+.flag-indicator.RED      { background: var(--f1-red); border-color: var(--f1-red);
+                            box-shadow: 0 0 18px 4px rgba(225,6,0,0.4); }
+.flag-indicator.CHEQ     { background: linear-gradient(135deg,#fff 50%,#111 50%);
+                            border-color: #ccc;
+                            box-shadow: 0 0 18px 4px rgba(255,255,255,0.25); }
+
+.flag-name {
+  font-size:   2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.flag-sub {
+  font-size:  0.8rem;
+  color:      var(--text-muted);
+  margin-top: 0.3rem;
+}
+
+/* ── Stat grid ─────────────────────────────────────────────────────────────── */
+.stat-grid {
+  display:               grid;
+  grid-template-columns: 1fr 1fr;
+  gap:                   0.75rem 1rem;
+}
+.stat {
+  display:        flex;
+  flex-direction: column;
+  gap:            0.2rem;
+}
+.stat-label {
+  font-size:      0.65rem;
+  font-weight:    600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color:          var(--text-muted);
+}
+.stat-value {
+  font-size:   0.9rem;
+  font-weight: 500;
+}
+.stat-value.mono { font-family: monospace; font-size: 0.85rem; }
+
+/* ── Form fields ───────────────────────────────────────────────────────────── */
+.field {
+  margin-bottom: 1.5rem;
+}
+.field:last-of-type { margin-bottom: 0; }
+
+label {
+  display:        block;
+  font-size:      0.75rem;
+  font-weight:    600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color:          var(--text-muted);
+  margin-bottom:  0.5rem;
+}
+
+.input-row {
+  display:     flex;
+  align-items: center;
+  gap:         0.5rem;
+}
+input[type="number"] {
+  background:    var(--surface2);
+  border:        1px solid var(--border);
+  border-radius: 6px;
+  color:         var(--text);
+  font-size:     0.95rem;
+  padding:       0.45rem 0.7rem;
+  width:         110px;
+  outline:       none;
+  transition:    border-color 0.2s;
+}
+input[type="number"]:focus { border-color: var(--f1-red); }
+
+.unit {
+  font-size:  0.8rem;
+  color:      var(--text-muted);
+}
+
+.slider-row {
+  display:     flex;
+  align-items: center;
+  gap:         0.75rem;
+}
+input[type="range"] {
+  flex:        1;
+  accent-color: var(--f1-red);
+  height:      4px;
+  cursor:      pointer;
+}
+.slider-value {
+  font-size:   0.9rem;
+  font-weight: 600;
+  min-width:   3.5rem;
+  text-align:  right;
+  color:       var(--text);
+}
+
+.hint {
+  font-size:  0.75rem;
+  color:      var(--text-muted);
+  margin-top: 0.5rem;
+  line-height: 1.5;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+.button-row {
+  display:     flex;
+  align-items: center;
+  gap:         0.75rem;
+  flex-wrap:   wrap;
+  margin-top:  1.25rem;
+}
+
+.btn {
+  display:       inline-flex;
+  align-items:   center;
+  justify-content: center;
+  padding:       0.5rem 1.25rem;
+  border-radius: 6px;
+  font-size:     0.85rem;
+  font-weight:   600;
+  cursor:        pointer;
+  border:        none;
+  transition:    opacity 0.15s, transform 0.1s;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: var(--f1-red);
+  color:      #fff;
+}
+.btn-primary:hover { opacity: 0.85; }
+
+.btn-danger {
+  background: transparent;
+  border:     1px solid var(--f1-red);
+  color:      var(--f1-red);
+}
+.btn-danger:hover { background: rgba(225,6,0,0.12); }
+
+.btn-ghost {
+  background: transparent;
+  border:     1px solid var(--border);
+  color:      var(--text-muted);
+}
+.btn-ghost:hover { border-color: var(--text-muted); color: var(--text); }
+
+.save-feedback {
+  font-size:  0.8rem;
+  color:      var(--green);
+  opacity:    0;
+  transition: opacity 0.3s;
+}
+.save-feedback.visible { opacity: 1; }
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .stat-grid { grid-template-columns: 1fr; }
+  .flag-name { font-size: 1.5rem; }
+}
