@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>F1 Sensor - Debug</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <div class="logo">
+      <span class="logo-f1">F1</span>
+      <span class="logo-sensor">SENSOR</span>
+    </div>
+    <a href="/" class="nav-link">&larr; Dashboard</a>
+  </header>
+
+  <main>
+
+    <!-- ── Override banner ─────────────────────────────────────────────── -->
+    <div class="override-banner" id="override-banner" style="display:none">
+      <span>Override active: <strong id="override-flag-name">—</strong></span>
+      <button class="btn btn-ghost btn-sm" id="release-btn">Release to Live</button>
+    </div>
+
+    <!-- ── Animation trigger ───────────────────────────────────────────── -->
+    <section class="card">
+      <h2>Animation Trigger</h2>
+      <p class="hint" style="margin-bottom:1rem">
+        Manually fire an LED animation. Overrides live F1 data until released.
+      </p>
+      <div class="flag-btn-grid" id="flag-buttons"></div>
+    </section>
+
+    <!-- ── System ──────────────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>System</h2>
+      <div class="stat-grid debug-grid">
+        <div class="stat"><span class="stat-label">Free heap</span><span class="stat-value mono" id="sys-free-heap">—</span></div>
+        <div class="stat"><span class="stat-label">Min free heap</span><span class="stat-value mono" id="sys-min-heap">—</span></div>
+        <div class="stat"><span class="stat-label">Chip</span><span class="stat-value mono" id="sys-chip">—</span></div>
+        <div class="stat"><span class="stat-label">CPU</span><span class="stat-value mono" id="sys-cpu">—</span></div>
+        <div class="stat"><span class="stat-label">SDK</span><span class="stat-value mono" id="sys-sdk">—</span></div>
+        <div class="stat"><span class="stat-label">Uptime</span><span class="stat-value mono" id="sys-uptime">—</span></div>
+      </div>
+    </section>
+
+    <!-- ── WiFi ────────────────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>WiFi</h2>
+      <div class="stat-grid debug-grid">
+        <div class="stat"><span class="stat-label">SSID</span><span class="stat-value" id="wifi-ssid">—</span></div>
+        <div class="stat"><span class="stat-label">BSSID</span><span class="stat-value mono" id="wifi-bssid">—</span></div>
+        <div class="stat"><span class="stat-label">Channel</span><span class="stat-value mono" id="wifi-channel">—</span></div>
+        <div class="stat"><span class="stat-label">IP</span><span class="stat-value mono" id="wifi-ip">—</span></div>
+        <div class="stat"><span class="stat-label">Gateway</span><span class="stat-value mono" id="wifi-gateway">—</span></div>
+        <div class="stat"><span class="stat-label">Subnet</span><span class="stat-value mono" id="wifi-subnet">—</span></div>
+        <div class="stat"><span class="stat-label">DNS</span><span class="stat-value mono" id="wifi-dns">—</span></div>
+        <div class="stat"><span class="stat-label">RSSI</span><span class="stat-value mono" id="wifi-rssi">—</span></div>
+        <div class="stat"><span class="stat-label">TX power</span><span class="stat-value mono" id="wifi-txpower">—</span></div>
+      </div>
+    </section>
+
+    <!-- ── SignalR ─────────────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>SignalR Connection</h2>
+      <div class="stat-grid debug-grid">
+        <div class="stat"><span class="stat-label">State</span><span class="stat-value" id="sr-state">—</span></div>
+        <div class="stat"><span class="stat-label">Reconnect delay</span><span class="stat-value mono" id="sr-reconnect">—</span></div>
+        <div class="stat"><span class="stat-label">Last message</span><span class="stat-value mono" id="sr-last-msg">—</span></div>
+        <div class="stat"><span class="stat-label">Last heartbeat</span><span class="stat-value mono" id="sr-last-hb">—</span></div>
+      </div>
+    </section>
+
+    <!-- ── F1 State ────────────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>F1 State</h2>
+      <div class="stat-grid debug-grid">
+        <div class="stat"><span class="stat-label">Current flag</span><span class="stat-value" id="f1-flag">—</span></div>
+        <div class="stat"><span class="stat-label">Queue depth</span><span class="stat-value mono" id="f1-queue">—</span></div>
+        <div class="stat"><span class="stat-label">Track raw</span><span class="stat-value mono" id="f1-track-raw">—</span></div>
+        <div class="stat"><span class="stat-label">Session type</span><span class="stat-value" id="f1-session-type">—</span></div>
+        <div class="stat"><span class="stat-label">Session status</span><span class="stat-value" id="f1-session-status">—</span></div>
+        <div class="stat"><span class="stat-label">Last queued flag</span><span class="stat-value mono" id="f1-last-queued">—</span></div>
+      </div>
+    </section>
+
+    <!-- ── LED ─────────────────────────────────────────────────────────── -->
+    <section class="card">
+      <h2>LED Controller</h2>
+      <div class="stat-grid debug-grid">
+        <div class="stat"><span class="stat-label">Animation</span><span class="stat-value" id="led-animation">—</span></div>
+        <div class="stat"><span class="stat-label">Brightness</span><span class="stat-value mono" id="led-brightness">—</span></div>
+        <div class="stat"><span class="stat-label">LED count</span><span class="stat-value mono" id="led-count">—</span></div>
+        <div class="stat"><span class="stat-label">Data pin</span><span class="stat-value mono" id="led-pin">—</span></div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="debug.js"></script>
+</body>
+</html>

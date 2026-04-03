@@ -286,8 +286,78 @@ input[type="range"] {
 }
 .save-feedback.visible { opacity: 1; }
 
+/* ── Navigation link ───────────────────────────────────────────────────────── */
+.nav-link {
+  font-size:       0.75rem;
+  font-weight:     600;
+  color:           var(--text-muted);
+  text-decoration: none;
+  letter-spacing:  0.08em;
+  text-transform:  uppercase;
+  transition:      color 0.2s;
+}
+.nav-link:hover { color: var(--text); }
+
+/* ── Override banner ──────────────────────────────────────────────────────── */
+.override-banner {
+  background:      rgba(255,140,0,0.12);
+  border:          1px solid var(--orange);
+  border-radius:   var(--radius);
+  padding:         0.75rem 1rem;
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  gap:             1rem;
+  font-size:       0.8rem;
+  font-weight:     700;
+  text-transform:  uppercase;
+  letter-spacing:  0.1em;
+  color:           var(--orange);
+}
+
+/* ── Flag button grid ─────────────────────────────────────────────────────── */
+.flag-btn-grid {
+  display:               grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap:                   0.5rem;
+}
+.flag-btn {
+  padding:        0.6rem 0.5rem;
+  border-radius:  6px;
+  font-size:      0.8rem;
+  font-weight:    700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor:         pointer;
+  border:         2px solid var(--border);
+  background:     var(--surface2);
+  color:          var(--text);
+  transition:     all 0.2s;
+}
+.flag-btn:hover  { border-color: var(--text-muted); }
+.flag-btn.active {
+  border-color: currentColor;
+  box-shadow:   0 0 12px 2px currentColor;
+}
+.flag-btn[data-flag="IDLE"]   { color: #8a2020; }
+.flag-btn[data-flag="CLEAR"]  { color: var(--green); }
+.flag-btn[data-flag="YELLOW"] { color: var(--yellow); }
+.flag-btn[data-flag="VSC"]    { color: var(--yellow); }
+.flag-btn[data-flag="SC"]     { color: var(--orange); }
+.flag-btn[data-flag="RED"]    { color: var(--f1-red); }
+.flag-btn[data-flag="CHEQ"]   { color: #ccc; }
+
+.btn-sm { padding: 0.3rem 0.7rem; font-size: 0.7rem; }
+
+/* ── Debug stat grid (3 columns) ──────────────────────────────────────────── */
+.debug-grid { grid-template-columns: 1fr 1fr 1fr; }
+
 /* ── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .debug-grid { grid-template-columns: 1fr 1fr; }
+}
 @media (max-width: 480px) {
   .stat-grid { grid-template-columns: 1fr; }
+  .debug-grid { grid-template-columns: 1fr; }
   .flag-name { font-size: 1.5rem; }
 }

@@ -61,7 +61,7 @@ void onBrightnessChanged(uint8_t brightness) {
 
 // ── SignalR message handler ───────────────────────────────────────────────────
 
-static F1Flag lastQueuedFlag = F1Flag::IDLE;
+F1Flag lastQueuedFlag = F1Flag::IDLE;
 
 static void onF1Message(const String& stream, JsonObject data) {
     bool stateChanged = false;
@@ -200,9 +200,15 @@ void loop() {
         webServer.sendStatus();
     }
 
+    // Debug override: force LED state if active
+    if (webServer.isOverrideActive()) {
+        F1Flag ovr = webServer.getOverrideFlag();
+        if (leds.getState() != ovr) leds.setState(ovr);
+    }
+
     // Update LED animation frame
     leds.tick();
 
     // DEBUG: mirror flag state to built-in LED
-    tickBuiltinLed(f1State.currentFlag);
+    tickBuiltinLed(leds.getState());
 }

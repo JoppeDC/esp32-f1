@@ -24,6 +24,11 @@ public:
     SignalRState getState()    const { return _state; }
     const char*  getStateStr() const;
 
+    // Debug timing getters
+    uint32_t getLastMessageAgoMs()   const { return millis() - _lastMessageMs; }
+    uint32_t getLastHeartbeatAgoMs() const { return millis() - _lastHeartbeatMs; }
+    uint32_t getReconnectDelay()     const { return _reconnectDelay; }
+
 private:
     // ── State machine ─────────────────────────────────────────────────────────
     SignalRState _state = SignalRState::IDLE;
