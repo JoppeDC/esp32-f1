@@ -157,16 +157,22 @@ void setup() {
     leds.begin(config.led_count, config.brightness);
     leds.setState(F1Flag::IDLE);
 
+    // Blink LED 0 while WiFi setup is in progress (autoConnect blocks setup).
+    leds.startBootIndicator();
+
     // WiFiManager — blocks until WiFi connects.
     // On first boot (or after /api/wifi/reset) opens AP "F1-Sensor-Setup".
     WiFiManager wm;
     wm.setConfigPortalTimeout(180);   // 3-min portal timeout, then retry
     wm.setConnectTimeout(15);
+    wm.setAPCallback([](WiFiManager*) { leds.setBootIndicatorApMode(true); });
 
     if (!wm.autoConnect("F1-Sensor-Setup")) {
         Serial.println("[WiFi] Connect failed, restarting…");
         ESP.restart();
     }
+
+    leds.stopBootIndicator();
 
     Serial.printf("[WiFi] Connected — IP: %s\n", WiFi.localIP().toString().c_str());
 
@@ -196,15 +202,16 @@ void loop() {
     f1State.tick(config.delay_ms);
     if (f1State.currentFlag != before) {
         Serial.printf("[F1] Flag applied: %s\n", f1State.flagName());
-        leds.setState(f1State.currentFlag);
         webServer.sendStatus();
     }
 
-    // Debug override: force LED state if active
-    if (webServer.isOverrideActive()) {
-        F1Flag ovr = webServer.getOverrideFlag();
-        if (leds.getState() != ovr) leds.setState(ovr);
-    }
+    // LED state: manual override takes priority, otherwise mirror live flag.
+    // When the override is released, this snaps back to the current live flag
+    // (IDLE if none), so testing CHEQ and releasing returns to IDLE immediately.
+    F1Flag target = webServer.isOverrideActive()
+                        ? webServer.getOverrideFlag()
+                        : f1State.currentFlag;
+    if (leds.getState() != target) leds.setState(target);
 
     // Update LED animation frame
     leds.tick();

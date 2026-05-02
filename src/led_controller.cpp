@@ -11,7 +11,7 @@ LedController leds;
 #define YELLOW_FRAME_MS    25    // yellow chase — slightly faster
 #define VSC_FRAME_MS      200    // slow alternating segments
 #define SC_FRAME_MS        80    // fast alternating segments
-#define RED_FRAME_MS      150    // alternating red flash
+#define RED_FRAME_MS       25    // step length for breathing pulse
 #define CHEQ_FRAME_MS      60    // chequered sweep
 #define GREEN_PULSE_MS     12    // fade step speed for green pulses
 
@@ -36,6 +36,41 @@ void LedController::setCount(uint16_t count) {
         FastLED.show();
     }
     _count = newCount;
+}
+
+// ── Boot indicator ────────────────────────────────────────────────────────────
+// Blinks LED 0 blue while WiFi setup is in progress. setup() blocks inside
+// WiFiManager::autoConnect(), so loop() (and tick()) can't drive the strip;
+// a dedicated FreeRTOS task gives us a heartbeat during that window.
+
+void LedController::bootIndicatorTask(void* arg) {
+    LedController* self = static_cast<LedController*>(arg);
+    bool on = false;
+    for (;;) {
+        ledBuffer[0] = on ? CRGB::Blue : CRGB::Black;
+        FastLED.show();
+        on = !on;
+        vTaskDelay(pdMS_TO_TICKS(self->_bootApMode ? 150 : 500));
+    }
+}
+
+void LedController::startBootIndicator() {
+    if (_bootTask) return;
+    _bootApMode = false;
+    xTaskCreatePinnedToCore(bootIndicatorTask, "bootBlink", 2048, this,
+                            /*priority=*/1, &_bootTask, /*core=*/0);
+}
+
+void LedController::stopBootIndicator() {
+    if (!_bootTask) return;
+    vTaskDelete(_bootTask);
+    _bootTask = nullptr;
+    ledBuffer[0] = CRGB::Black;
+    FastLED.show();
+}
+
+void LedController::setBootIndicatorApMode(bool apActive) {
+    _bootApMode = apActive;
 }
 
 void LedController::setState(F1Flag flag) {
@@ -139,16 +174,18 @@ void LedController::tickSC() {
     _frame++;
 }
 
-// ── RED FLAG — alternating bright red / dark red segments ────────────────────
+// ── RED FLAG — smooth red breathing pulse ────────────────────────────────────
 
 void LedController::tickRed() {
     if (millis() - _lastTick < RED_FRAME_MS) return;
     _lastTick = millis();
 
-    // Alternate between two reds for a pulsing danger feel
-    CRGB bright = CRGB(255, 0, 0);
-    CRGB dark   = CRGB(60, 0, 0);
-    setAlternatingSegments(5, _frame % 10, bright, dark);
+    // Whole strip breathes between dim and full red on a sine envelope.
+    // Never reaches black (floor of 30), so no hard on/off — calmer than a
+    // strobe but still reads as "alert". Period ≈ 1.3 s.
+    uint8_t v = sin8((uint8_t)(_frame * 5));   // 0..255, wraps every ~51 frames
+    uint8_t r = 30 + scale8(v, 225);           // map to 30..255
+    fillSolid(CRGB(r, 0, 0));
     FastLED.show();
     _frame++;
 }

@@ -1,6 +1,8 @@
 #pragma once
 #include <Arduino.h>
 #include <FastLED.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 #include "f1_state.h"
 
 class LedController {
@@ -14,7 +16,16 @@ public:
     void setBrightness(uint8_t b);
     void setCount(uint16_t count);
 
+    // ── Boot indicator (LED 0 blink while WiFi isn't connected) ───────────────
+    void startBootIndicator();
+    void stopBootIndicator();
+    void setBootIndicatorApMode(bool apActive);
+
 private:
+    static void bootIndicatorTask(void* arg);
+    TaskHandle_t  _bootTask    = nullptr;
+    volatile bool _bootApMode  = false;
+
     // ── Animation state ───────────────────────────────────────────────────────
     F1Flag   _state       = F1Flag::IDLE;
     uint32_t _lastTick    = 0;

@@ -20,6 +20,8 @@
 #define RECONNECT_MAX_MS         60000UL   // cap at 60 s
 
 // ── Runtime configuration (persisted to NVS) ─────────────────────────────────
+// Tunable from the web UI; values below are first-boot defaults used when
+// no value is present in NVS (fresh flash, after NVS erase, etc.).
 struct Config {
     uint16_t led_count  = 60;
     uint8_t  brightness = 128;

@@ -8,24 +8,63 @@ ESP32 firmware that connects to the official F1 Live Timing service via SignalR 
 - **LED animations** — distinct effects per flag state: comet chase (idle/yellow), alternating segments (VSC/SC/red), green pulses (clear), chequered sweep (finish)
 - **Configurable delay** — queues flag changes with a configurable delay (default 45s) so LED state can match broadcast timing
 - **Web UI** — serves a local dashboard over HTTP with real-time SSE updates for status and configuration
-- **WiFi provisioning** — uses WiFiManager captive portal on first boot (AP: `F1-Sensor-Setup`)
+- **WiFi provisioning** — uses WiFiManager captive portal on first boot (AP: `F1-Sensor-Setup`); LED 0 blinks blue while WiFi setup is in progress (slow = connecting, fast = AP portal open)
 - **mDNS** — accessible at `http://f1sensor.local`
 - **Persistent config** — LED count, brightness, and delay stored in NVS
 
 ## Hardware
 
-- ESP32 dev board
-- WS2812B LED strip on GPIO 16 (configurable in `src/config.h`)
+- ESP32 dev board (defaults target ESP32-C3 DevKitM-1)
+- WS2812B LED strip on GPIO 4 (configurable in `src/config.h`)
 - Up to 500 LEDs supported
 
-## Build
+## Setup
 
-Built with [PlatformIO](https://platformio.org/). To build and flash:
+Built with [PlatformIO](https://platformio.org/). Install the [PlatformIO CLI](https://docs.platformio.org/en/latest/core/installation/index.html) (or the VS Code extension) before continuing.
+
+### 1. Configure the LED data pin
+
+Open `src/config.h` and set `LED_DATA_PIN` to the GPIO your strip's data line is wired to:
+
+```c
+#define LED_DATA_PIN  4   // change to match your wiring
+```
+
+### 2. Configure the board (if needed)
+
+The default board in `platformio.ini` is `esp32-c3-devkitm-1`. If you're using a different ESP32 variant (classic ESP32, ESP32-S3, ESP32-S2, etc.), update the `board` line:
+
+```ini
+[env:esp32dev]
+platform  = espressif32
+board     = esp32dev          ; or esp32-s3-devkitc-1, etc.
+framework = arduino
+```
+
+A list of supported boards is available in the [PlatformIO board index](https://docs.platformio.org/en/latest/boards/index.html#espressif-32).
+
+### 3. Build and flash
+
+Connect the board over USB, then:
 
 ```sh
-pio run -t upload            # flash firmware
-pio run -t uploadfs          # upload web UI files (LittleFS)
+pio run -t upload            # build + flash firmware
+pio run -t uploadfs          # upload web UI files to LittleFS (run once, and again whenever data/ changes)
+pio device monitor           # optional: watch serial logs
 ```
+
+### 4. First boot — WiFi provisioning
+
+On first boot (or after `/api/wifi/reset`) the device has no saved WiFi credentials and starts a captive portal:
+
+1. LED 0 blinks blue — slow (500 ms) while it tries any saved credentials, fast (150 ms) once the AP portal is up.
+2. On your phone or laptop, connect to the WiFi network **`F1-Sensor-Setup`**.
+3. The captive portal should open automatically. If it doesn't, browse to `http://192.168.4.1`.
+4. Pick your home network and enter its password. The ESP32 saves the credentials and reboots into normal mode.
+
+### 5. Open the dashboard
+
+Once connected, browse to **`http://f1sensor.local`** (or the IP printed over serial) to see live flag status and tweak LED count, brightness, and broadcast delay. Settings are stored in NVS and persist across reboots.
 
 ## API
 
@@ -40,7 +79,7 @@ pio run -t uploadfs          # upload web UI files (LittleFS)
 
 ## How It Works
 
-1. **First boot** — the ESP32 creates a WiFi access point called `F1-Sensor-Setup`. Connect to it with your phone or laptop and pick your home network from the captive portal. Credentials are saved for future boots.
+1. **First boot** — the ESP32 creates a WiFi access point called `F1-Sensor-Setup`. While setup is in progress LED 0 blinks blue: a slow blink (500 ms) means it's trying saved credentials; a fast blink (150 ms) means the AP portal is up and waiting for you. Connect to it with your phone or laptop and pick your home network from the captive portal. Credentials are saved for future boots.
 
 2. **Connects to F1 Live Timing** — once online, the firmware negotiates a SignalR connection to `livetiming.formula1.com` and subscribes to the live data streams. The connection pill in the web UI shows the current state (Connecting / Connected / Reconnecting).
 
