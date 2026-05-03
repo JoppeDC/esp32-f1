@@ -16,6 +16,9 @@ Config config;
 #define BUILTIN_LED_PIN 2
 static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
+static constexpr uint32_t CLEAR_DISPLAY_MS = 10000;
+static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
+static uint32_t _clearAppliedAt  = 0;
 
 static uint16_t blinkIntervalForFlag(F1Flag flag) {
     switch (flag) {
@@ -205,12 +208,29 @@ void loop() {
         webServer.sendStatus();
     }
 
+    if (f1State.currentFlag != _lastAppliedFlag) {
+        _lastAppliedFlag = f1State.currentFlag;
+        if (_lastAppliedFlag == F1Flag::CLEAR) {
+            _clearAppliedAt = millis();
+        } else {
+            _clearAppliedAt = 0;
+        }
+    }
+
     // LED state: manual override takes priority, otherwise mirror live flag.
     // When the override is released, this snaps back to the current live flag
     // (IDLE if none), so testing CHEQ and releasing returns to IDLE immediately.
+    F1Flag liveTarget = f1State.currentFlag;
+    if (!webServer.isOverrideActive() &&
+        liveTarget == F1Flag::CLEAR &&
+        _clearAppliedAt > 0 &&
+        millis() - _clearAppliedAt >= CLEAR_DISPLAY_MS) {
+        liveTarget = F1Flag::IDLE;
+    }
+
     F1Flag target = webServer.isOverrideActive()
                         ? webServer.getOverrideFlag()
-                        : f1State.currentFlag;
+                        : liveTarget;
     if (leds.getState() != target) leds.setState(target);
 
     // Update LED animation frame
