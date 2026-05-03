@@ -16,10 +16,12 @@ Config config;
 #define BUILTIN_LED_PIN 2
 static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
+// Duration to display CLEAR before falling back to IDLE while track remains CLEAR.
 static constexpr uint32_t CLEAR_DISPLAY_MS = 10000;
 static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
 static uint32_t _clearAppliedAt  = 0;
 
+// Wrap-safe elapsed-time check for millis()-based timers (uint32_t subtraction).
 static inline bool elapsedMs(uint32_t startMs, uint32_t durationMs, uint32_t nowMs) {
     return static_cast<uint32_t>(nowMs - startMs) >= durationMs;
 }
@@ -217,6 +219,7 @@ void loop() {
         if (_lastAppliedFlag == F1Flag::CLEAR) {
             _clearAppliedAt = millis();
         } else {
+            // Clear timer when leaving CLEAR so a future CLEAR starts a fresh window.
             _clearAppliedAt = 0;
         }
     }
