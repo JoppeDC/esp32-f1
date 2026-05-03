@@ -20,6 +20,10 @@ static constexpr uint32_t CLEAR_DISPLAY_MS = 10000;
 static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
 static uint32_t _clearAppliedAt  = 0;
 
+static inline bool elapsedMs(uint32_t startMs, uint32_t durationMs, uint32_t nowMs) {
+    return static_cast<uint32_t>(nowMs - startMs) >= durationMs;
+}
+
 static uint16_t blinkIntervalForFlag(F1Flag flag) {
     switch (flag) {
         case F1Flag::CLEAR:    return 0;      // solid on
@@ -221,10 +225,11 @@ void loop() {
     // When the override is released, this snaps back to the current live flag
     // (IDLE if none), so testing CHEQ and releasing returns to IDLE immediately.
     F1Flag liveTarget = f1State.currentFlag;
+    uint32_t nowMs = millis();
     if (!webServer.isOverrideActive() &&
         liveTarget == F1Flag::CLEAR &&
         _clearAppliedAt > 0 &&
-        millis() - _clearAppliedAt >= CLEAR_DISPLAY_MS) {
+        elapsedMs(_clearAppliedAt, CLEAR_DISPLAY_MS, nowMs)) {
         liveTarget = F1Flag::IDLE;
     }
 
