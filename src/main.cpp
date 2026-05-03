@@ -230,16 +230,17 @@ void loop() {
     // LED state: manual override takes priority, otherwise mirror live flag.
     // When the override is released, this snaps back to the current live flag
     // (IDLE if none), so testing CHEQ and releasing returns to IDLE immediately.
+    const bool overrideActive = webServer.isOverrideActive();
     F1Flag liveTarget = f1State.currentFlag;
     uint32_t nowMs = millis();
-    if (!webServer.isOverrideActive() &&
+    if (!overrideActive &&
         liveTarget == F1Flag::CLEAR &&
         _clearTimerActive &&
         elapsedMs(_clearAppliedAt, CLEAR_DISPLAY_MS, nowMs)) {
         liveTarget = F1Flag::IDLE;
     }
 
-    F1Flag target = webServer.isOverrideActive()
+    F1Flag target = overrideActive
                         ? webServer.getOverrideFlag()
                         : liveTarget;
     if (leds.getState() != target) leds.setState(target);
