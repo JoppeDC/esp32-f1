@@ -5,7 +5,7 @@ ESP32 firmware that connects to the official F1 Live Timing service via SignalR 
 ## Features
 
 - **Live F1 data** — subscribes to `TrackStatus`, `SessionStatus`, and `SessionInfo` streams from `livetiming.formula1.com`
-- **LED animations** — distinct effects per flag state: comet chase (idle/yellow), alternating segments (VSC/SC/red), green pulses (clear), chequered sweep (finish)
+- **LED animations** — distinct effects per flag state: comet chase (idle/yellow), alternating segments (VSC/SC/red), timed green pulses (10-second clear window), chequered sweep (finish)
 - **Configurable delay** — queues flag changes with a configurable delay (default 45s) so LED state can match broadcast timing
 - **Web UI** — serves a local dashboard over HTTP with real-time SSE updates for status and configuration
 - **WiFi provisioning** — uses WiFiManager captive portal on first boot (AP: `F1-Sensor-Setup`); LED 0 blinks blue while WiFi setup is in progress (slow = connecting, fast = AP portal open)
@@ -89,7 +89,7 @@ Once connected, browse to **`http://f1sensor.local`** (or the IP printed over se
    | Flag | Animation |
    |------|-----------|
    | Idle | Dim red base + red comet |
-   | Green (Clear) | 3 green pulses, then back to idle |
+   | Green (Clear) | Green pulse effect for ~10 seconds, then back to idle |
    | Yellow | Yellow comet chase |
    | VSC | Slow alternating yellow/off segments |
    | SC | Fast alternating yellow/off segments |
