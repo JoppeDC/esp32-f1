@@ -88,13 +88,13 @@ Once connected, browse to **`http://f1sensor.local`** (or the IP printed over se
 4. **Drives the LED strip** — the `LedController` runs a per-flag animation loop at ~30-200 fps depending on the effect:
    | Flag | Animation |
    |------|-----------|
-   | Idle | Dim red base + red comet |
-   | Green (Clear) | Green pulse effect for ~10 seconds, then back to idle |
-   | Yellow | Yellow comet chase |
+   | Idle | Dim red base |
+   | Green (Clear) | Green  |
+   | Yellow | Yellow |
    | VSC | Slow alternating yellow/off segments |
    | SC | Fast alternating yellow/off segments |
    | Red | Alternating bright/dark red segments |
-   | Chequered | Scrolling black/white segments + white flash |
+   | Chequered | Scrolling black/white segments + white flash for max. 1 minute |
 
 5. **Web dashboard** — browse to `http://f1sensor.local` (or the device IP) to see live flag status, session info, and SignalR connection state via SSE. The Settings card lets you adjust LED count, brightness, and broadcast delay. The Device card has restart and WiFi reset buttons.
 
@@ -115,3 +115,20 @@ src/
 data/
   index.html, style.css, app.js — web dashboard (served from LittleFS)
 ```
+## Changes 24-7-2026 by Harrie (signalr-core-fix):
+
+F1 retired the classic /signalr endpoint this feed was built against, which is why negotiate was returning 401 regardless of correct query params. Confirmed this against the f1_sensor HACS integration, which defaults to /signalrcore.
+
+SignalR changes (signalr_client.h/.cpp, config.h):
+
+Negotiate is now a POST to /signalrcore/negotiate?negotiateVersion=1 instead of GET to /signalr/negotiate
+WebSocket connects to /signalrcore?id=<token> instead of the old hub-based connect URL
+Added the required JSON protocol handshake before subscribing
+Incoming/outgoing messages are now framed with the 0x1E record separator and dispatched by SignalR Core's type field (1=push, 3=snapshot, 6=ping/pong, 7=close)
+No auth needed — TrackStatus/SessionStatus/SessionInfo are all public streams on Core
+
+LED changes (led_controller.h/.cpp):
+
+IDLE, CLEAR/GREEN, and YELLOW are now static fills instead of animated (comet/pulse)
+RED_FLAG keeps the original sine breathing pulse, runs continuously until state changes
+CHEQ now has a 60s minimum hold so it can't get cut short if SessionStatus flips quickly after "Finished"
