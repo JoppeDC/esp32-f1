@@ -5,6 +5,8 @@
 
 SignalRClient signalr;
 
+static const char RS = '\x1e';   // SignalR Core record separator
+
 // ── URL encoding ──────────────────────────────────────────────────────────────
 
 String urlEncode(const String& str) {
@@ -53,11 +55,14 @@ void SignalRClient::tick() {
                 scheduleReconnect();
             }
 
-            // Heartbeat — re-subscribe every 5 min to keep SignalR alive
+            // Note: SignalR Core has its own ping/pong (type 6) handled in
+            // processCoreSegment(), which is what actually keeps the server-side
+            // connection alive. We no longer need to periodically re-Subscribe
+            // the way the classic protocol required — this heartbeat now just
+            // logs liveness and gives us a cheap secondary safety net.
             if (millis() - _lastHeartbeatMs > HEARTBEAT_INTERVAL_MS) {
-                sendSubscribe();
                 _lastHeartbeatMs = millis();
-                Serial.println("[SignalR] Heartbeat: subscriptions renewed");
+                Serial.println("[SignalR] Heartbeat check (Core ping/pong handles keepalive)");
             }
             break;
 
@@ -93,10 +98,10 @@ void SignalRClient::scheduleReconnect() {
     transitionTo(SignalRState::RECONNECT_WAIT);
 }
 
-// ── Step 1: HTTP negotiate ────────────────────────────────────────────────────
+// ── Step 1: HTTP negotiate (SignalR Core: POST, negotiateVersion=1) ───────────
 
 void SignalRClient::doNegotiate() {
-    Serial.println("[SignalR] Negotiating…");
+    Serial.println("[SignalR] Negotiating (Core)…");
     transitionTo(SignalRState::IDLE);   // prevent re-entry
 
     WiFiClientSecure tls;
@@ -106,8 +111,9 @@ void SignalRClient::doNegotiate() {
     String url = String("https://") + F1_HOST + F1_NEGOTIATE_PATH;
     http.begin(tls, url);
     http.addHeader("User-Agent", "BestHTTP");
+    http.addHeader("Content-Length", "0");
 
-    int code = http.GET();
+    int code = http.POST("");   // Core negotiate is POST with an empty body
     if (code != 200) {
         Serial.printf("[SignalR] Negotiate failed, HTTP %d\n", code);
         http.end();
@@ -115,7 +121,7 @@ void SignalRClient::doNegotiate() {
         return;
     }
 
-    // Extract Set-Cookie header before parsing body
+    // Optional: capture load-balancer cookie if F1 sets one (best effort)
     _cookie = http.header("Set-Cookie");
 
     String body = http.getString();
@@ -123,13 +129,15 @@ void SignalRClient::doNegotiate() {
 
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, body);
-    if (err || !doc["ConnectionToken"].is<const char*>()) {
+    if (err || !doc["connectionToken"].is<const char*>()) {
         Serial.println("[SignalR] Negotiate JSON parse failed");
+        Serial.printf("[SignalR] Raw body: %.200s\n", body.c_str());
         scheduleReconnect();
         return;
     }
 
-    _token = doc["ConnectionToken"].as<String>();
+    _token = doc["connectionToken"].as<String>();
+    _handshakeDone = false;
     Serial.println("[SignalR] Negotiate OK, connecting WebSocket…");
 
     // Reset backoff on successful negotiate
@@ -138,14 +146,12 @@ void SignalRClient::doNegotiate() {
     transitionTo(SignalRState::CONNECTING);
 }
 
-// ── Step 2: WebSocket connect ─────────────────────────────────────────────────
+// ── Step 2: WebSocket connect (SignalR Core: /signalrcore?id=<token>) ─────────
 
 void SignalRClient::doConnect() {
     transitionTo(SignalRState::IDLE);   // prevent re-entry while connecting
 
-    String path = String("/signalr/connect?transport=webSockets&clientProtocol=1.5")
-                  + "&connectionToken=" + urlEncode(_token)
-                  + "&connectionData=" + F1_HUB_DATA;
+    String path = String(F1_CONNECT_PATH) + "?id=" + urlEncode(_token);
 
     // Build extra headers string
     String extraHeaders = "User-Agent: BestHTTP";
@@ -174,17 +180,20 @@ void SignalRClient::doConnect() {
 
 void SignalRClient::onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
     switch (type) {
-        case WStype_CONNECTED:
-            Serial.println("[SignalR] WebSocket connected, subscribing…");
-            sendSubscribe();
+        case WStype_CONNECTED: {
+            Serial.println("[SignalR] WebSocket connected, sending protocol handshake…");
+            // SignalR Core requires a JSON protocol handshake before anything else
+            String hs = "{\"protocol\":\"json\",\"version\":1}";
+            hs += RS;
+            _ws.sendTXT(hs);
             _lastMessageMs   = millis();
             _lastHeartbeatMs = millis();
             break;
+        }
 
         case WStype_TEXT:
             _lastMessageMs = millis();
-            Serial.printf("[SignalR] Frame received (%d bytes)\n", (int)length);
-            parseFrame((const char*)payload);
+            handleCoreFrame((const char*)payload, length);
             break;
 
         case WStype_DISCONNECTED:
@@ -202,53 +211,93 @@ void SignalRClient::onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
     }
 }
 
-// ── Subscribe message ─────────────────────────────────────────────────────────
+// ── Subscribe message (SignalR Core invocation, public streams only) ──────────
 
 void SignalRClient::sendSubscribe() {
-    // Subscribe to exactly the streams we need + Heartbeat for watchdog
-    String msg = String("{\"H\":\"Streaming\",\"M\":\"Subscribe\","
-                        "\"A\":[[\"TrackStatus\",\"SessionStatus\","
-                        "\"SessionInfo\",\"Heartbeat\"]],\"I\":")
-                 + _msgId++ + "}";
+    // Public, unauthenticated streams only — exactly what the lamp needs.
+    // (CarData/Position/TeamRadio etc. are auth-gated on Core and deliberately omitted.)
+    String msg = String("{\"type\":1,\"target\":\"Subscribe\",\"arguments\":")
+                 + "[[\"TrackStatus\",\"SessionStatus\",\"SessionInfo\",\"Heartbeat\"]],"
+                 + "\"invocationId\":\"" + String(_msgId++) + "\"}";
+    msg += RS;
     _ws.sendTXT(msg);
 }
 
-// ── Incoming frame parser ─────────────────────────────────────────────────────
+// ── Incoming frame handling ────────────────────────────────────────────────────
 
-void SignalRClient::parseFrame(const char* json) {
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, json);
-    if (err) {
-        Serial.printf("[SignalR] JSON parse error: %s\n", err.c_str());
-        Serial.printf("[SignalR] Raw frame (%d bytes): %.200s\n",
-                      (int)strlen(json), json);
+// A single WebSocket TEXT frame may contain one or more RS-delimited JSON
+// messages concatenated together. Split first, then process each on its own.
+void SignalRClient::handleCoreFrame(const char* raw, size_t length) {
+    size_t start = 0;
+    for (size_t i = 0; i <= length; i++) {
+        if (i == length || raw[i] == RS) {
+            if (i > start) {
+                String segment(raw + start, i - start);
+                processCoreSegment(segment);
+            }
+            start = i + 1;
+        }
+    }
+}
+
+void SignalRClient::processCoreSegment(const String& segment) {
+    // The very first message we ever receive is the handshake response.
+    // Success looks like "{}"; failure includes an "error" field.
+    if (!_handshakeDone) {
+        JsonDocument hs;
+        DeserializationError err = deserializeJson(hs, segment);
+        if (!err && !hs["error"].is<const char*>()) {
+            _handshakeDone = true;
+            Serial.println("[SignalR] Handshake OK, subscribing…");
+            sendSubscribe();
+        } else {
+            Serial.printf("[SignalR] Handshake error: %s\n", segment.c_str());
+            scheduleReconnect();
+        }
         return;
     }
 
-    // Push messages arrive under the "M" key
-    if (doc["M"].is<JsonArray>()) {
-        for (JsonObject hubMsg : doc["M"].as<JsonArray>()) {
-            if (!hubMsg["M"].is<const char*>()) continue;
-            String method = hubMsg["M"].as<String>();
-            if (method != "feed") continue;
-
-            JsonArray args = hubMsg["A"].as<JsonArray>();
-            if (args.size() < 2) continue;
-
-            String stream = args[0].as<String>();
-            JsonObject data = args[1].as<JsonObject>();
-
-            if (_callback) _callback(stream, data);
-        }
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, segment);
+    if (err) {
+        Serial.printf("[SignalR] JSON parse error: %s\n", err.c_str());
+        Serial.printf("[SignalR] Raw segment (%d bytes): %.200s\n",
+                      (int)segment.length(), segment.c_str());
+        return;
     }
 
-    // Initial snapshot arrives under the "R" key as a map of stream→data
-    if (doc["R"].is<JsonObject>()) {
-        for (JsonPair kv : doc["R"].as<JsonObject>()) {
-            String stream = kv.key().c_str();
-            if (!kv.value().is<JsonObject>()) continue;
-            JsonObject data = kv.value().as<JsonObject>();
-            if (_callback) _callback(stream, data);
+    int msgType = doc["type"] | -1;
+    switch (msgType) {
+        case 1: {  // Invocation — a live push update (feed)
+            if (!doc["target"].is<const char*>()) break;
+            String stream = doc["target"].as<String>();
+            JsonArray args = doc["arguments"].as<JsonArray>();
+            if (args.size() > 0 && _callback) {
+                _callback(stream, args[0].as<JsonObject>());
+            }
+            break;
         }
+
+        case 3: {  // Completion — initial snapshot, keyed by stream name
+            JsonObject result = doc["result"].as<JsonObject>();
+            for (JsonPair kv : result) {
+                if (!kv.value().is<JsonObject>()) continue;
+                if (_callback) _callback(kv.key().c_str(), kv.value().as<JsonObject>());
+            }
+            break;
+        }
+
+        case 6:  // Ping — must echo back or the server will close the connection
+            _ws.sendTXT(String("{\"type\":6}") + RS);
+            break;
+
+        case 7:  // Close
+            Serial.printf("[SignalR] Server closed connection: %s\n",
+                          doc["error"] | "(no reason given)");
+            scheduleReconnect();
+            break;
+
+        default:
+            break;
     }
 }

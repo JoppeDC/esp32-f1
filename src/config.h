@@ -4,17 +4,17 @@
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
 // Change LED_DATA_PIN to match your wiring before flashing.
-#define LED_DATA_PIN  16
+#define LED_DATA_PIN  4
 #define MAX_LEDS      500   // buffer ceiling; actual count is runtime-configurable
 
-// ── F1 Live Timing endpoints ──────────────────────────────────────────────────
+// ── F1 Live Timing endpoints (SignalR Core, unauthenticated public streams) ───
 #define F1_HOST            "livetiming.formula1.com"
-#define F1_NEGOTIATE_PATH  "/signalr/negotiate?clientProtocol=1.5&connectionData=%5B%7B%22name%22%3A%22Streaming%22%7D%5D"
-#define F1_HUB_DATA        "%5B%7B%22name%22%3A%22Streaming%22%7D%5D"
+#define F1_NEGOTIATE_PATH  "/signalrcore/negotiate?negotiateVersion=1"
+#define F1_CONNECT_PATH    "/signalrcore"
 #define F1_WS_PORT         443
 
 // ── Timing constants ──────────────────────────────────────────────────────────
-#define HEARTBEAT_INTERVAL_MS   300000UL   // re-subscribe every 5 min
+#define HEARTBEAT_INTERVAL_MS   300000UL   // periodic liveness log
 #define INACTIVITY_TIMEOUT_MS    45000UL   // reconnect if no message for 45 s
 #define RECONNECT_INITIAL_MS      5000UL   // first retry after 5 s
 #define RECONNECT_MAX_MS         60000UL   // cap at 60 s

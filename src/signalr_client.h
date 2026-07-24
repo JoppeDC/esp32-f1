@@ -43,9 +43,11 @@ private:
     String           _token;
     String           _cookie;
     uint8_t          _msgId = 1;
+    bool             _handshakeDone = false;   // SignalR Core JSON protocol handshake ack
 
     void onWsEvent(WStype_t type, uint8_t* payload, size_t length);
-    void parseFrame(const char* json);
+    void handleCoreFrame(const char* raw, size_t length);
+    void processCoreSegment(const String& segment);
     void sendSubscribe();
 
     // ── Timers ────────────────────────────────────────────────────────────────

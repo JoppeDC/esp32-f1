@@ -34,6 +34,7 @@ private:
     bool     _pulseRising = true; // for GREEN: fade direction
 
     uint16_t _count       = 60;
+    uint32_t _stateEnteredMs = 0;   // millis() when the current state began (used by CHEQ hold)
 
     // ── Per-effect tick handlers ──────────────────────────────────────────────
     void tickIdle();

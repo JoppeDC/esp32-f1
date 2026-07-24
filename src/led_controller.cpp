@@ -7,15 +7,11 @@ static CRGB ledBuffer[MAX_LEDS];
 LedController leds;
 
 // ── Animation timing (ms per frame) ──────────────────────────────────────────
-#define IDLE_FRAME_MS      30    // comet speed
-#define YELLOW_FRAME_MS    25    // yellow chase — slightly faster
 #define VSC_FRAME_MS      200    // slow alternating segments
 #define SC_FRAME_MS        80    // fast alternating segments
 #define RED_FRAME_MS       25    // step length for breathing pulse
 #define CHEQ_FRAME_MS      60    // chequered sweep
-#define GREEN_PULSE_MS     12    // fade step speed for green pulses
-
-#define GREEN_PULSES        3    // number of pulses before returning to IDLE
+#define CHEQ_MIN_HOLD_MS 60000    // keep CHEQ on screen at least this long, even if the feed moves on quickly
 
 void LedController::begin(uint16_t count, uint8_t brightness) {
     _count = constrain(count, 1, MAX_LEDS);
@@ -75,11 +71,20 @@ void LedController::setBootIndicatorApMode(bool apActive) {
 
 void LedController::setState(F1Flag flag) {
     if (_state == flag) return;
-    _state       = flag;
-    _frame       = 0;
-    _pulseCount  = 0;
-    _pulseRising = true;
-    _lastTick    = 0;   // force immediate first frame
+
+    // Once the chequered flag starts, hold it for a minimum duration even if
+    // the feed's SessionStatus flips away again quickly — "Finished" is often
+    // a brief blip before the feed moves on to the next status.
+    if (_state == F1Flag::CHEQ && (millis() - _stateEnteredMs) < CHEQ_MIN_HOLD_MS) {
+        return;
+    }
+
+    _state          = flag;
+    _frame          = 0;
+    _pulseCount     = 0;
+    _pulseRising    = true;
+    _lastTick       = 0;   // force immediate first frame
+    _stateEnteredMs = millis();
 }
 
 // ── Main tick ─────────────────────────────────────────────────────────────────
@@ -96,60 +101,34 @@ void LedController::tick() {
     }
 }
 
-// ── IDLE — dim red base with a brighter red comet ─────────────────────────────
+// ── IDLE — dimmed constant red ────────────────────────────────────────────────
 
 void LedController::tickIdle() {
-    if (millis() - _lastTick < IDLE_FRAME_MS) return;
-    _lastTick = millis();
+    if (_frame > 0) return;   // static — draw once on entry, then leave it be
 
-    CRGB bg    = CRGB(35, 0, 0);
-    CRGB comet = CRGB(220, 0, 0);
-    fillSolid(bg);
-    setComet(_frame % _count, comet, bg, 6);
+    fillSolid(CRGB(35, 0, 0));
     FastLED.show();
-    _frame++;
+    _frame = 1;
 }
 
-// ── CLEAR — 3 green pulses, then back to IDLE ─────────────────────────────────
+// ── CLEAR — constant green ─────────────────────────────────────────────────────
 
 void LedController::tickClear() {
-    if (millis() - _lastTick < GREEN_PULSE_MS) return;
-    _lastTick = millis();
+    if (_frame > 0) return;   // static — draw once on entry, then leave it be
 
-    if (_pulseCount >= GREEN_PULSES) {
-        setState(F1Flag::IDLE);
-        return;
-    }
-
-    // _frame goes 0→255 (rising) then 255→0 (falling)
-    if (_pulseRising) {
-        _frame = min((int)_frame + 5, 255);
-        if (_frame >= 255) _pulseRising = false;
-    } else {
-        _frame = (_frame > 5) ? _frame - 5 : 0;
-        if (_frame == 0) {
-            _pulseRising = true;
-            _pulseCount++;
-        }
-    }
-
-    CRGB color = CRGB(0, (uint8_t)_frame, 0);
-    fillSolid(color);
+    fillSolid(CRGB(0, 200, 0));
     FastLED.show();
+    _frame = 1;
 }
 
-// ── YELLOW — yellow comet chase ───────────────────────────────────────────────
+// ── YELLOW — constant yellow ──────────────────────────────────────────────────
 
 void LedController::tickYellow() {
-    if (millis() - _lastTick < YELLOW_FRAME_MS) return;
-    _lastTick = millis();
+    if (_frame > 0) return;   // static — draw once on entry, then leave it be
 
-    CRGB bg    = CRGB(45, 36, 0);
-    CRGB comet = CRGB(255, 200, 0);
-    fillSolid(bg);
-    setComet(_frame % _count, comet, bg, 6);
+    fillSolid(CRGB(255, 170, 0));
     FastLED.show();
-    _frame++;
+    _frame = 1;
 }
 
 // ── VSC — slow alternating yellow/off segments ───────────────────────────────
@@ -183,6 +162,8 @@ void LedController::tickRed() {
     // Whole strip breathes between dim and full red on a sine envelope.
     // Never reaches black (floor of 30), so no hard on/off — calmer than a
     // strobe but still reads as "alert". Period ≈ 1.3 s.
+    // Runs indefinitely for as long as _state == RED_FLAG; it only stops
+    // when the F1 feed reports a different track status (e.g. CLEAR).
     uint8_t v = sin8((uint8_t)(_frame * 5));   // 0..255, wraps every ~51 frames
     uint8_t r = 30 + scale8(v, 225);           // map to 30..255
     fillSolid(CRGB(r, 0, 0));
@@ -193,6 +174,11 @@ void LedController::tickRed() {
 // ── CHEQ — chequered sweep with full-white flash ──────────────────────────────
 
 void LedController::tickCheq() {
+    if (millis() - _stateEnteredMs >= CHEQ_MIN_HOLD_MS) {
+        setState(F1Flag::IDLE);
+        return;
+    }
+
     if (millis() - _lastTick < CHEQ_FRAME_MS) return;
     _lastTick = millis();
 
