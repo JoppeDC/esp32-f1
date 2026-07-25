@@ -110,6 +110,13 @@ void SignalRClient::doNegotiate() {
     HTTPClient http;
     String url = String("https://") + F1_HOST + F1_NEGOTIATE_PATH;
     http.begin(tls, url);
+
+    // ESP32 HTTPClient silently discards any response header not explicitly
+    // registered here — without this call, http.header("Set-Cookie") below
+    // always returns "" with no error, even though the server did send one.
+    const char* headerKeys[] = { "Set-Cookie" };
+    http.collectHeaders(headerKeys, 1);
+
     http.addHeader("User-Agent", "BestHTTP");
     http.addHeader("Content-Length", "0");
 
