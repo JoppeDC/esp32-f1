@@ -128,8 +128,20 @@ void SignalRClient::doNegotiate() {
         return;
     }
 
-    // Optional: capture load-balancer cookie if F1 sets one (best effort)
-    _cookie = http.header("Set-Cookie");
+    // Optional: capture load-balancer cookie if F1 sets one (best effort).
+    // Only the AWSALBCORS=<value> fragment is valid to resend as a request
+    // Cookie header — the raw Set-Cookie also carries response-only attributes
+    // (Path, Secure, SameSite, Expires...) that make a malformed Cookie header
+    // if forwarded verbatim, which the load balancer/WAF can reject outright.
+    String rawSetCookie = http.header("Set-Cookie");
+    _cookie = "";
+    int albIdx = rawSetCookie.indexOf("AWSALBCORS=");
+    if (albIdx >= 0) {
+        int valueStart = albIdx + strlen("AWSALBCORS=");
+        int valueEnd   = rawSetCookie.indexOf(';', valueStart);
+        if (valueEnd < 0) valueEnd = rawSetCookie.length();
+        _cookie = "AWSALBCORS=" + rawSetCookie.substring(valueStart, valueEnd);
+    }
 
     String body = http.getString();
     http.end();
@@ -275,12 +287,14 @@ void SignalRClient::processCoreSegment(const String& segment) {
 
     int msgType = doc["type"] | -1;
     switch (msgType) {
-        case 1: {  // Invocation — a live push update (feed)
-            if (!doc["target"].is<const char*>()) break;
-            String stream = doc["target"].as<String>();
+        case 1: {  // Invocation — F1's Core hub always calls its "feed" method;
+                   // target is literally "feed", the real stream name and data
+                   // are packed inside arguments: [streamName, data]
             JsonArray args = doc["arguments"].as<JsonArray>();
-            if (args.size() > 0 && _callback) {
-                _callback(stream, args[0].as<JsonObject>());
+            if (args.size() >= 2 && _callback) {
+                String stream = args[0].as<String>();
+                JsonObject data = args[1].as<JsonObject>();
+                _callback(stream, data);
             }
             break;
         }
