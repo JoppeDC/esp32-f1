@@ -16,16 +16,6 @@ Config config;
 #define BUILTIN_LED_PIN 2
 static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
-// Duration to display CLEAR before falling back to IDLE while track remains CLEAR.
-static constexpr uint32_t CLEAR_DISPLAY_MS = 10000;
-static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
-static uint32_t _clearAppliedAt  = 0;
-static bool     _clearTimerActive = false;
-
-// Wrap-safe elapsed-time check for millis()-based timers (uint32_t subtraction).
-static inline bool elapsedMs(uint32_t startMs, uint32_t durationMs, uint32_t nowMs) {
-    return static_cast<uint32_t>(nowMs - startMs) >= durationMs;
-}
 
 static uint16_t blinkIntervalForFlag(F1Flag flag) {
     switch (flag) {
@@ -215,34 +205,13 @@ void loop() {
         webServer.sendStatus();
     }
 
-    if (f1State.currentFlag != _lastAppliedFlag) {
-        _lastAppliedFlag = f1State.currentFlag;
-        if (_lastAppliedFlag == F1Flag::CLEAR) {
-            _clearAppliedAt = millis();
-            _clearTimerActive = true;
-        } else {
-            // Clear timer when leaving CLEAR so a future CLEAR starts a fresh window.
-            _clearAppliedAt = 0;
-            _clearTimerActive = false;
-        }
-    }
-
     // LED state: manual override takes priority, otherwise mirror live flag.
     // When the override is released, this snaps back to the current live flag
     // (IDLE if none), so testing CHEQ and releasing returns to IDLE immediately.
     const bool overrideActive = webServer.isOverrideActive();
-    F1Flag liveTarget = f1State.currentFlag;
-    uint32_t nowMs = millis();
-    if (!overrideActive &&
-        liveTarget == F1Flag::CLEAR &&
-        _clearTimerActive &&
-        elapsedMs(_clearAppliedAt, CLEAR_DISPLAY_MS, nowMs)) {
-        liveTarget = F1Flag::IDLE;
-    }
-
     F1Flag target = overrideActive
                         ? webServer.getOverrideFlag()
-                        : liveTarget;
+                        : f1State.currentFlag;
     if (leds.getState() != target) leds.setState(target);
 
     // Update LED animation frame
