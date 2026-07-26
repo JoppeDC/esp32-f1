@@ -45,7 +45,8 @@ private:
     uint8_t          _msgId = 1;
 
     void onWsEvent(WStype_t type, uint8_t* payload, size_t length);
-    void parseFrame(const char* json);
+    void parseFrame(char* payload, size_t length);
+    void parseSegment(const char* json);
     void sendSubscribe();
 
     // ── Timers ────────────────────────────────────────────────────────────────

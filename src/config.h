@@ -4,17 +4,25 @@
 
 // ── Hardware ──────────────────────────────────────────────────────────────────
 // Change LED_DATA_PIN to match your wiring before flashing.
+// On ESP32-C3 GPIO 11-17 are wired to flash, so the classic pin 16 is unusable.
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+#define LED_DATA_PIN  4
+#else
 #define LED_DATA_PIN  16
+#endif
 #define MAX_LEDS      500   // buffer ceiling; actual count is runtime-configurable
 
-// ── F1 Live Timing endpoints ──────────────────────────────────────────────────
-#define F1_HOST            "livetiming.formula1.com"
-#define F1_NEGOTIATE_PATH  "/signalr/negotiate?clientProtocol=1.5&connectionData=%5B%7B%22name%22%3A%22Streaming%22%7D%5D"
-#define F1_HUB_DATA        "%5B%7B%22name%22%3A%22Streaming%22%7D%5D"
-#define F1_WS_PORT         443
+// ── F1 Live Timing endpoints (SignalR Core) ──────────────────────────────────
+// The legacy /signalr endpoint is auth-gated since ~July 2026 (returns 401).
+// The /signalrcore endpoint remains open for the public streams we use.
+#define F1_HOST                 "livetiming.formula1.com"
+#define F1_CORE_NEGOTIATE_PATH  "/signalrcore/negotiate?negotiateVersion=1"
+#define F1_CORE_WS_PATH         "/signalrcore"
+#define F1_WS_PORT              443
 
 // ── Timing constants ──────────────────────────────────────────────────────────
-#define HEARTBEAT_INTERVAL_MS   300000UL   // re-subscribe every 5 min
+// Server sends a protocol-level ping (type 6) every ~15 s, which counts as
+// activity; no periodic re-subscribe is needed on the Core endpoint.
 #define INACTIVITY_TIMEOUT_MS    45000UL   // reconnect if no message for 45 s
 #define RECONNECT_INITIAL_MS      5000UL   // first retry after 5 s
 #define RECONNECT_MAX_MS         60000UL   // cap at 60 s

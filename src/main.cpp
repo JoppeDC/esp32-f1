@@ -13,7 +13,11 @@ Config config;
 
 // ── DEBUG: Built-in LED blink pattern to visualise flag state without a strip ─
 // Remove this once external LEDs are connected.
+#ifdef CONFIG_IDF_TARGET_ESP32C3
+#define BUILTIN_LED_PIN 8   // most C3 dev boards; often active-low (blink inverted)
+#else
 #define BUILTIN_LED_PIN 2
+#endif
 static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
 // Duration to display CLEAR before falling back to IDLE while track remains CLEAR.
