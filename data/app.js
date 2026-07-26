@@ -15,6 +15,8 @@ const brightnessInput = document.getElementById('brightness');
 const brightnessVal   = document.getElementById('brightness-val');
 const delayInput      = document.getElementById('delay');
 const delayVal        = document.getElementById('delay-val');
+const relayHostInput  = document.getElementById('relay-host');
+const relayPortInput  = document.getElementById('relay-port');
 const settingsForm    = document.getElementById('settings-form');
 const saveFeedback    = document.getElementById('save-feedback');
 
@@ -94,6 +96,9 @@ async function loadConfig() {
     const delaySec = Math.round((data.delay_ms ?? 45000) / 1000);
     delayInput.value      = delaySec;
     delayVal.textContent  = delaySec + ' s';
+
+    relayHostInput.value = data.relay_host ?? '';
+    relayPortInput.value = data.relay_port ?? 8000;
   } catch (err) {
     console.warn('Could not load config:', err);
   }
@@ -124,6 +129,8 @@ settingsForm.addEventListener('submit', async (e) => {
     led_count:  parseInt(ledCountInput.value,   10),
     brightness: parseInt(brightnessInput.value, 10),
     delay_ms:   parseInt(delayInput.value,      10) * 1000,
+    relay_host: relayHostInput.value.trim(),
+    relay_port: parseInt(relayPortInput.value, 10) || 8000,
   };
 
   try {
