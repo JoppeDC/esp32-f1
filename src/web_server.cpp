@@ -2,7 +2,7 @@
 #include "config.h"
 #include "f1_state.h"
 #include "led_controller.h"
-#include "signalr_client.h"
+#include "relay_client.h"
 #include <LittleFS.h>
 #include <WiFi.h>
 #include <ArduinoJson.h>
@@ -19,7 +19,7 @@ String F1WebServer::buildStatusJson() {
     doc["session"]       = f1State.sessionType.length() ? f1State.sessionType : "—";
     doc["sessionStatus"] = f1State.sessionStatusName();
     doc["trackRaw"]      = f1State.trackStatusRaw;
-    doc["sigRState"]     = signalr.getStateStr();
+    doc["sigRState"]     = relay.getStateStr();
     doc["ip"]            = WiFi.localIP().toString();
     doc["rssi"]          = WiFi.RSSI();
     doc["delayMs"]       = config.delay_ms;
@@ -59,12 +59,14 @@ String F1WebServer::buildDebugSystemJson() {
 String F1WebServer::buildDebugLiveJson() {
     JsonDocument doc;
 
-    // SignalR
-    JsonObject sr         = doc["signalr"].to<JsonObject>();
-    sr["state"]           = signalr.getStateStr();
-    sr["reconnectDelayMs"]  = signalr.getReconnectDelay();
-    sr["lastMessageAgoMs"]  = signalr.getLastMessageAgoMs();
-    sr["lastHeartbeatAgoMs"]= signalr.getLastHeartbeatAgoMs();
+    // Relay link (object key and field names kept so debug.js needs no changes;
+    // reconnectDelayMs is the client's fixed retry interval, and the heartbeat
+    // field now mirrors last-message age)
+    JsonObject sr           = doc["signalr"].to<JsonObject>();
+    sr["state"]             = relay.getStateStr();
+    sr["reconnectDelayMs"]  = 5000;
+    sr["lastMessageAgoMs"]  = relay.getLastMessageAgoMs();
+    sr["lastHeartbeatAgoMs"]= relay.getLastMessageAgoMs();
 
     // F1 State
     JsonObject f1         = doc["f1"].to<JsonObject>();
@@ -132,6 +134,8 @@ void F1WebServer::setupRoutes() {
         doc["led_count"]  = config.led_count;
         doc["brightness"] = config.brightness;
         doc["delay_ms"]   = config.delay_ms;
+        doc["relay_host"] = config.relay_host;
+        doc["relay_port"] = config.relay_port;
         String out;
         serializeJson(doc, out);
         req->send(200, "application/json", out);
@@ -176,6 +180,21 @@ void F1WebServer::setupRoutes() {
                 uint32_t v = constrain((uint32_t)doc["delay_ms"], 0UL, 120000UL);
                 config.delay_ms = v;
                 changed = true;
+            }
+            if (doc["relay_host"].is<const char*>() || doc["relay_port"].is<uint16_t>()) {
+                String host = doc["relay_host"].is<const char*>()
+                                  ? String(doc["relay_host"].as<const char*>())
+                                  : config.relay_host;
+                uint16_t port = doc["relay_port"].is<uint16_t>()
+                                  ? (uint16_t)doc["relay_port"]
+                                  : config.relay_port;
+                if (host != config.relay_host || port != config.relay_port) {
+                    config.relay_host = host;
+                    config.relay_port = port;
+                    changed = true;
+                    extern void onRelayConfigChanged();
+                    onRelayConfigChanged();
+                }
             }
 
             if (changed) config.save();

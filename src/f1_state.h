@@ -38,16 +38,6 @@ struct F1State {
     String        trackStatusRaw  = "";   // CLEAR / YELLOW / VSC / SC / RED
     String        sessionRaw      = "";   // Started / Finished / etc.
 
-    // ── Derived helpers ───────────────────────────────────────────────────────
-    bool sessionActive()   const { return sessionStatus == SessionStatus::LIVE; }
-    bool sessionFinished() const {
-        return sessionStatus == SessionStatus::FINISHED
-            || sessionStatus == SessionStatus::FINALISED;
-    }
-    bool isRaceOrSprint() const {
-        return sessionType == "Race" || sessionType == "Sprint";
-    }
-
     // ── Delay queue (FIFO) ─────────────────────────────────────────────────────
     // Each flag change is pushed with a timestamp. They apply in order after
     // the configured delay elapses, so short-lived flags (e.g. a brief yellow)
@@ -94,21 +84,6 @@ struct F1State {
         }
     }
 
-    // ── Automation logic ──────────────────────────────────────────────────────
-    // Maps current state to the flag that should drive the LEDs,
-    // using the same priority order as the Home Assistant automation.
-    F1Flag resolveDisplayFlag() const {
-        const bool scActive = (trackStatusRaw == "SC" || trackStatusRaw == "VSC");
-
-        if (sessionActive() && trackStatusRaw == "RED")    return F1Flag::RED_FLAG;
-        if (sessionActive() && scActive && trackStatusRaw == "SC")  return F1Flag::SC;
-        if (sessionActive() && scActive && trackStatusRaw == "VSC") return F1Flag::VSC;
-        if (sessionActive() && trackStatusRaw == "YELLOW") return F1Flag::YELLOW;
-        if (sessionActive() && trackStatusRaw == "CLEAR")  return F1Flag::CLEAR;
-        if (sessionFinished() && isRaceOrSprint())          return F1Flag::CHEQ;
-        return F1Flag::IDLE;
-    }
-
     // ── String helpers for web UI / logging ──────────────────────────────────
     static const char* flagNameFor(F1Flag f) {
         switch (f) {
@@ -121,6 +96,19 @@ struct F1State {
             case F1Flag::CHEQ:     return "CHEQ";
         }
         return "IDLE";
+    }
+
+    // Maps a relay "session" string (lamp protocol v1) to SessionStatus,
+    // for the lamp web UI.
+    static SessionStatus sessionStatusFromString(const char* s) {
+        if (strcmp(s, "pre")       == 0) return SessionStatus::PRE;
+        if (strcmp(s, "live")      == 0) return SessionStatus::LIVE;
+        if (strcmp(s, "suspended") == 0) return SessionStatus::SUSPENDED;
+        if (strcmp(s, "break")     == 0) return SessionStatus::BREAK;
+        if (strcmp(s, "finished")  == 0) return SessionStatus::FINISHED;
+        if (strcmp(s, "finalised") == 0) return SessionStatus::FINALISED;
+        if (strcmp(s, "ended")     == 0) return SessionStatus::ENDED;
+        return SessionStatus::UNKNOWN;
     }
 
     const char* flagName() const {
@@ -150,14 +138,5 @@ struct F1State {
         return "unknown";
     }
 };
-
-// ── Parsing helpers ───────────────────────────────────────────────────────────
-
-// Parse TrackStatus payload → normalised string (CLEAR/YELLOW/VSC/SC/RED).
-String parseTrackStatus(const char* statusCode, const char* message);
-
-// Parse SessionStatus payload → SessionStatus enum.
-SessionStatus parseSessionStatus(const char* status, const char* started,
-                                  const String& trackStatusRaw);
 
 extern F1State f1State;
