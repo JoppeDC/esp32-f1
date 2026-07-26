@@ -174,11 +174,6 @@ void LedController::tickRed() {
 // ── CHEQ — chequered sweep with full-white flash ──────────────────────────────
 
 void LedController::tickCheq() {
-    if (millis() - _stateEnteredMs >= CHEQ_MIN_HOLD_MS) {
-        setState(F1Flag::IDLE);
-        return;
-    }
-
     if (millis() - _lastTick < CHEQ_FRAME_MS) return;
     _lastTick = millis();
 

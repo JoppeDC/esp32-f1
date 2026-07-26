@@ -17,6 +17,16 @@ Config config;
 static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
 
+// How long CHEQ is held before falling back to IDLE on its own. There's no
+// feed event that ever un-sets a Finalised/Finished session status after a
+// race ends, so f1State.currentFlag would otherwise stay CHEQ forever —
+// this is the single place that decides when to give up on it.
+// Keep this in sync with CHEQ_MIN_HOLD_MS in led_controller.cpp, which
+// separately guards against something trying to interrupt CHEQ too early.
+static constexpr uint32_t CHEQ_HOLD_MS = 60000;
+static uint32_t _cheqAppliedAt   = 0;
+static bool     _cheqTimerActive = false;
+
 static uint16_t blinkIntervalForFlag(F1Flag flag) {
     switch (flag) {
         case F1Flag::CLEAR:    return 0;      // solid on
@@ -202,6 +212,24 @@ void loop() {
     f1State.tick(config.delay_ms);
     if (f1State.currentFlag != before) {
         Serial.printf("[F1] Flag applied: %s\n", f1State.flagName());
+        webServer.sendStatus();
+
+        if (f1State.currentFlag == F1Flag::CHEQ) {
+            _cheqAppliedAt   = millis();
+            _cheqTimerActive = true;
+        } else {
+            _cheqTimerActive = false;
+        }
+    }
+
+    // CHEQ has no natural "end" event from the feed (a Finalised session
+    // status never changes again), so this is what makes it eventually let go.
+    if (_cheqTimerActive &&
+        f1State.currentFlag == F1Flag::CHEQ &&
+        millis() - _cheqAppliedAt >= CHEQ_HOLD_MS) {
+        f1State.currentFlag = F1Flag::IDLE;
+        _cheqTimerActive    = false;
+        Serial.println("[F1] CHEQ hold expired, falling back to IDLE");
         webServer.sendStatus();
     }
 
