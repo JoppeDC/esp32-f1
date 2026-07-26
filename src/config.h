@@ -34,6 +34,8 @@ struct Config {
     uint16_t led_count  = 60;
     uint8_t  brightness = 128;
     uint32_t delay_ms   = 45000;   // delay between F1 event and LED change
+    String   relay_host = "";      // empty = relay not configured
+    uint16_t relay_port = 8000;
 
     void load() {
         Preferences prefs;
@@ -41,6 +43,8 @@ struct Config {
         led_count  = prefs.getUShort("led_count",  led_count);
         brightness = prefs.getUChar ("brightness", brightness);
         delay_ms   = prefs.getULong ("delay_ms",   delay_ms);
+        relay_host = prefs.getString("relay_host", relay_host);
+        relay_port = prefs.getUShort("relay_port", relay_port);
         prefs.end();
     }
 
@@ -50,6 +54,8 @@ struct Config {
         prefs.putUShort("led_count",  led_count);
         prefs.putUChar ("brightness", brightness);
         prefs.putULong ("delay_ms",   delay_ms);
+        prefs.putString("relay_host", relay_host);
+        prefs.putUShort("relay_port", relay_port);
         prefs.end();
     }
 };
