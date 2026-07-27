@@ -12,21 +12,6 @@
 #endif
 #define MAX_LEDS      500   // buffer ceiling; actual count is runtime-configurable
 
-// ── F1 Live Timing endpoints (SignalR Core) ──────────────────────────────────
-// The legacy /signalr endpoint is auth-gated since ~July 2026 (returns 401).
-// The /signalrcore endpoint remains open for the public streams we use.
-#define F1_HOST                 "livetiming.formula1.com"
-#define F1_CORE_NEGOTIATE_PATH  "/signalrcore/negotiate?negotiateVersion=1"
-#define F1_CORE_WS_PATH         "/signalrcore"
-#define F1_WS_PORT              443
-
-// ── Timing constants ──────────────────────────────────────────────────────────
-// Server sends a protocol-level ping (type 6) every ~15 s, which counts as
-// activity; no periodic re-subscribe is needed on the Core endpoint.
-#define INACTIVITY_TIMEOUT_MS    45000UL   // reconnect if no message for 45 s
-#define RECONNECT_INITIAL_MS      5000UL   // first retry after 5 s
-#define RECONNECT_MAX_MS         60000UL   // cap at 60 s
-
 // ── Runtime configuration (persisted to NVS) ─────────────────────────────────
 // Tunable from the web UI; values below are first-boot defaults used when
 // no value is present in NVS (fresh flash, after NVS erase, etc.).

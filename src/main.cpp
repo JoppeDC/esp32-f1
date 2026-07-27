@@ -85,7 +85,6 @@ static void onRelayMessage(F1Flag display, JsonObject msg) {
     // Informational fields for the lamp web UI
     f1State.trackStatusRaw = String(msg["track"]   | "");
     f1State.sessionType    = String(msg["type"]    | "");
-    f1State.sessionRaw     = String(msg["session"] | "");
     f1State.sessionStatus  = F1State::sessionStatusFromString(msg["session"] | "");
 
     if (display != lastQueuedFlag) {

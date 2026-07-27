@@ -36,7 +36,6 @@ struct F1State {
 
     // Raw strings for web UI
     String        trackStatusRaw  = "";   // CLEAR / YELLOW / VSC / SC / RED
-    String        sessionRaw      = "";   // Started / Finished / etc.
 
     // ── Delay queue (FIFO) ─────────────────────────────────────────────────────
     // Each flag change is pushed with a timestamp. They apply in order after
