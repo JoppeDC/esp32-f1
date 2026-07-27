@@ -64,7 +64,7 @@ String F1WebServer::buildDebugLiveJson() {
     // field now mirrors last-message age)
     JsonObject sr           = doc["signalr"].to<JsonObject>();
     sr["state"]             = relay.getStateStr();
-    sr["reconnectDelayMs"]  = 5000;
+    sr["reconnectDelayMs"]  = RelayClient::RECONNECT_INTERVAL_MS;
     sr["lastMessageAgoMs"]  = relay.getLastMessageAgoMs();
     sr["lastHeartbeatAgoMs"]= relay.getLastMessageAgoMs();
 
@@ -188,6 +188,7 @@ void F1WebServer::setupRoutes() {
                 uint16_t port = doc["relay_port"].is<uint16_t>()
                                   ? (uint16_t)doc["relay_port"]
                                   : config.relay_port;
+                if (port == 0) port = config.relay_port;   // silently keep existing value
                 if (host != config.relay_host || port != config.relay_port) {
                     config.relay_host = host;
                     config.relay_port = port;

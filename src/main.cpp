@@ -74,7 +74,7 @@ void onBrightnessChanged(uint8_t brightness) {
 }
 
 void onRelayConfigChanged() {
-    relay.begin(config.relay_host, config.relay_port);
+    relay.requestReconfigure(config.relay_host, config.relay_port);
 }
 
 // ── Relay message handler ─────────────────────────────────────────────────────

@@ -15,11 +15,25 @@ void RelayClient::begin(const String& host, uint16_t port) {
         relay.onWsEvent(type, payload, length);
     });
     _ws.begin(host.c_str(), port, "/ws");
-    _ws.setReconnectInterval(5000);
+    _ws.setReconnectInterval(RECONNECT_INTERVAL_MS);
     // Protocol-level ping every 15 s; treat 2 missed pongs (3 s timeout) as dead.
     _ws.enableHeartbeat(15000, 3000, 2);
     _lastMessageMs = millis();
     Serial.printf("[Relay] Connecting to ws://%s:%u/ws\n", host.c_str(), port);
+}
+
+void RelayClient::requestReconfigure(const String& host, uint16_t port) {
+    _pendingHost = host;
+    _pendingPort = port;
+    _reconfigurePending = true;
+}
+
+void RelayClient::tick() {
+    if (_reconfigurePending) {
+        _reconfigurePending = false;
+        begin(_pendingHost, _pendingPort);
+    }
+    if (_configured) _ws.loop();
 }
 
 const char* RelayClient::getStateStr() const {
@@ -58,6 +72,8 @@ void RelayClient::onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
                 return;
             }
             if (!doc["display"].is<const char*>()) return;
+            // doc.as<JsonObject>() is a lightweight view into `doc`; it is
+            // only valid for the duration of this callback invocation.
             if (_callback) _callback(flagFromDisplay(doc["display"]), doc.as<JsonObject>());
             break;
         }
