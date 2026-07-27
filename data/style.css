@@ -191,7 +191,8 @@ label {
   align-items: center;
   gap:         0.5rem;
 }
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   background:    var(--surface2);
   border:        1px solid var(--border);
   border-radius: 6px;
@@ -202,7 +203,8 @@ input[type="number"] {
   outline:       none;
   transition:    border-color 0.2s;
 }
-input[type="number"]:focus { border-color: var(--f1-red); }
+input[type="number"]:focus,
+input[type="text"]:focus { border-color: var(--f1-red); }
 
 .unit {
   font-size:  0.8rem;
