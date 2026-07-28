@@ -22,6 +22,10 @@ static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
 // Duration to display CLEAR before falling back to IDLE while track remains CLEAR.
 static constexpr uint32_t CLEAR_DISPLAY_MS = 10000;
+// How long to keep showing a flag with no fresh state behind it. Covers both a
+// stale relay (upstream F1 link down) and a dead relay link — without this, a
+// lamp that loses its connection mid-session sits on SC or RED indefinitely.
+static constexpr uint32_t STALE_IDLE_TIMEOUT_MS = 300000;   // 5 min
 static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
 static uint32_t _clearAppliedAt  = 0;
 static bool     _clearTimerActive = false;
@@ -74,7 +78,7 @@ void onBrightnessChanged(uint8_t brightness) {
 }
 
 void onRelayConfigChanged() {
-    relay.requestReconfigure(config.relay_host, config.relay_port);
+    relay.requestReconfigure(config.relay_url);
 }
 
 // ── Relay message handler ─────────────────────────────────────────────────────
@@ -144,7 +148,7 @@ void setup() {
 
     // Wire up the relay client and start connecting
     relay.setCallback(onRelayMessage);
-    relay.begin(config.relay_host, config.relay_port);
+    relay.begin(config.relay_url);
 
     Serial.println("[F1 Sensor] Ready.");
 }
@@ -177,13 +181,19 @@ void loop() {
     // LED state: manual override takes priority, otherwise mirror live flag.
     // When the override is released, this snaps back to the current live flag
     // (IDLE if none), so testing CHEQ and releasing returns to IDLE immediately.
+    //
+    // Priority: override → no fresh state → CLEAR window expired → live flag.
     const bool overrideActive = webServer.isOverrideActive();
     F1Flag liveTarget = f1State.currentFlag;
     uint32_t nowMs = millis();
-    if (!overrideActive &&
-        liveTarget == F1Flag::CLEAR &&
-        _clearTimerActive &&
-        elapsedMs(_clearAppliedAt, CLEAR_DISPLAY_MS, nowMs)) {
+    if (relay.isStateExpired(STALE_IDLE_TIMEOUT_MS)) {
+        // Nothing authoritative — the relay lost F1, we lost the relay, or no
+        // relay is configured at all. Either way, stop asserting a flag that
+        // may be hours old.
+        liveTarget = F1Flag::IDLE;
+    } else if (liveTarget == F1Flag::CLEAR &&
+               _clearTimerActive &&
+               elapsedMs(_clearAppliedAt, CLEAR_DISPLAY_MS, nowMs)) {
         liveTarget = F1Flag::IDLE;
     }
 

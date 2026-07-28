@@ -45,8 +45,8 @@
           <span class="stat-value mono" id="stat-track-raw">—</span>
         </div>
         <div class="stat">
-          <span class="stat-label">F1 connection</span>
-          <span class="stat-value" id="stat-signalr">—</span>
+          <span class="stat-label">Relay connection</span>
+          <span class="stat-value" id="stat-relay">—</span>
         </div>
         <div class="stat">
           <span class="stat-label">Device IP</span>
@@ -97,15 +97,15 @@
         </div>
 
         <div class="field">
-          <label for="relay-host">Relay server</label>
+          <label for="relay-url">Relay server</label>
           <div class="input-row">
-            <input type="text" id="relay-host" name="relay_host"
-                   placeholder="192.168.1.10" />
-            <span class="unit">port</span>
-            <input type="number" id="relay-port" name="relay_port"
-                   min="1" max="65535" step="1" value="8000" />
+            <input type="text" id="relay-url" name="relay_url"
+                   placeholder="wss://f1-relay.joppe.dev/ws" />
           </div>
-          <p class="hint">Host/IP and port of your F1 relay. Leave host empty to disable.</p>
+          <p class="hint">
+            WebSocket URL of your F1 relay, starting with ws:// or wss://.
+            Defaults to the public instance. Leave empty to disable.
+          </p>
         </div>
 
         <div class="button-row">

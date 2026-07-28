@@ -19,7 +19,9 @@ String F1WebServer::buildStatusJson() {
     doc["session"]       = f1State.sessionType.length() ? f1State.sessionType : "—";
     doc["sessionStatus"] = f1State.sessionStatusName();
     doc["trackRaw"]      = f1State.trackStatusRaw;
-    doc["sigRState"]     = relay.getStateStr();
+    doc["relayState"]    = relay.getStateStr();
+    doc["stale"]         = relay.isStale();
+    doc["freshAgeMs"]    = relay.getFreshAgeMs();
     doc["ip"]            = WiFi.localIP().toString();
     doc["rssi"]          = WiFi.RSSI();
     doc["delayMs"]       = config.delay_ms;
@@ -59,14 +61,15 @@ String F1WebServer::buildDebugSystemJson() {
 String F1WebServer::buildDebugLiveJson() {
     JsonDocument doc;
 
-    // Relay link (object key and field names kept so debug.js needs no changes;
-    // reconnectDelayMs is the client's fixed retry interval, and the heartbeat
-    // field now mirrors last-message age)
-    JsonObject sr           = doc["signalr"].to<JsonObject>();
-    sr["state"]             = relay.getStateStr();
-    sr["reconnectDelayMs"]  = RelayClient::RECONNECT_INTERVAL_MS;
-    sr["lastMessageAgoMs"]  = relay.getLastMessageAgoMs();
-    sr["lastHeartbeatAgoMs"]= relay.getLastMessageAgoMs();
+    // Relay link. reconnectDelayMs is the current backoff interval, which
+    // escalates while disconnected; freshAgeMs is the age of the last message
+    // the relay vouched for (stale == false).
+    JsonObject rl           = doc["relay"].to<JsonObject>();
+    rl["state"]             = relay.getStateStr();
+    rl["reconnectDelayMs"]  = relay.getReconnectDelayMs();
+    rl["lastMessageAgoMs"]  = relay.getLastMessageAgoMs();
+    rl["freshAgeMs"]        = relay.getFreshAgeMs();
+    rl["stale"]             = relay.isStale();
 
     // F1 State
     JsonObject f1         = doc["f1"].to<JsonObject>();
@@ -134,8 +137,7 @@ void F1WebServer::setupRoutes() {
         doc["led_count"]  = config.led_count;
         doc["brightness"] = config.brightness;
         doc["delay_ms"]   = config.delay_ms;
-        doc["relay_host"] = config.relay_host;
-        doc["relay_port"] = config.relay_port;
+        doc["relay_url"]  = config.relay_url;
         String out;
         serializeJson(doc, out);
         req->send(200, "application/json", out);
@@ -153,6 +155,22 @@ void F1WebServer::setupRoutes() {
             if (err) {
                 req->send(400, "application/json", "{\"error\":\"invalid JSON\"}");
                 return;
+            }
+
+            // Validate the relay URL before applying anything, so a rejected
+            // request can't leave other fields half-applied to the hardware.
+            const bool hasRelayUrl = doc["relay_url"].is<const char*>();
+            String relayUrl;
+            if (hasRelayUrl) {
+                relayUrl = String(doc["relay_url"].as<const char*>());
+                relayUrl.trim();
+                RelayUrl parsed;
+                if (relayUrl.length() > 0 && !parseRelayUrl(relayUrl, parsed)) {
+                    req->send(400, "application/json",
+                              "{\"error\":\"relay_url must be ws://host[:port][/path] "
+                              "or wss://host[:port][/path]\"}");
+                    return;
+                }
             }
 
             bool changed = false;
@@ -181,21 +199,11 @@ void F1WebServer::setupRoutes() {
                 config.delay_ms = v;
                 changed = true;
             }
-            if (doc["relay_host"].is<const char*>() || doc["relay_port"].is<uint16_t>()) {
-                String host = doc["relay_host"].is<const char*>()
-                                  ? String(doc["relay_host"].as<const char*>())
-                                  : config.relay_host;
-                uint16_t port = doc["relay_port"].is<uint16_t>()
-                                  ? (uint16_t)doc["relay_port"]
-                                  : config.relay_port;
-                if (port == 0) port = config.relay_port;   // silently keep existing value
-                if (host != config.relay_host || port != config.relay_port) {
-                    config.relay_host = host;
-                    config.relay_port = port;
-                    changed = true;
-                    extern void onRelayConfigChanged();
-                    onRelayConfigChanged();
-                }
+            if (hasRelayUrl && relayUrl != config.relay_url) {
+                config.relay_url = relayUrl;
+                changed = true;
+                extern void onRelayConfigChanged();
+                onRelayConfigChanged();
             }
 
             if (changed) config.save();

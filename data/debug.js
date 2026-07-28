@@ -87,12 +87,13 @@ function applySystem(d) {
 
 /* ── Apply live data (polled) ─────────────────────────────────────────────── */
 function applyLive(d) {
-  // SignalR
-  const sr = d.signalr || {};
-  setText('sr-state',      sr.state);
-  setText('sr-reconnect',  sr.reconnectDelayMs + ' ms');
-  setText('sr-last-msg',   fmtAgo(sr.lastMessageAgoMs));
-  setText('sr-last-hb',    fmtAgo(sr.lastHeartbeatAgoMs));
+  // Relay
+  const rl = d.relay || {};
+  setText('relay-state',     rl.state);
+  setText('relay-reconnect', rl.reconnectDelayMs + ' ms');
+  setText('relay-last-msg',  fmtAgo(rl.lastMessageAgoMs));
+  setText('relay-fresh',     fmtAgo(rl.freshAgeMs));
+  setText('relay-stale',     rl.stale ? 'yes' : 'no');
 
   // F1 State
   const f1 = d.f1 || {};

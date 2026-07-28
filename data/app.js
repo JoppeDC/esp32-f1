@@ -6,7 +6,7 @@ const flagSub         = document.getElementById('flag-sub');
 const statSession     = document.getElementById('stat-session');
 const statSessionSt   = document.getElementById('stat-session-status');
 const statTrackRaw    = document.getElementById('stat-track-raw');
-const statSignalR     = document.getElementById('stat-signalr');
+const statRelay       = document.getElementById('stat-relay');
 const statIP          = document.getElementById('stat-ip');
 const statRSSI        = document.getElementById('stat-rssi');
 
@@ -15,8 +15,7 @@ const brightnessInput = document.getElementById('brightness');
 const brightnessVal   = document.getElementById('brightness-val');
 const delayInput      = document.getElementById('delay');
 const delayVal        = document.getElementById('delay-val');
-const relayHostInput  = document.getElementById('relay-host');
-const relayPortInput  = document.getElementById('relay-port');
+const relayUrlInput   = document.getElementById('relay-url');
 const settingsForm    = document.getElementById('settings-form');
 const saveFeedback    = document.getElementById('save-feedback');
 
@@ -32,6 +31,15 @@ const FLAG_META = {
   SC:     { label: 'Safety Car',   sub: 'Safety car deployed',    css: 'SC'     },
   RED:    { label: 'Red Flag',     sub: 'Session suspended',      css: 'RED'    },
   CHEQ:   { label: 'Chequered',    sub: 'Session finished',       css: 'CHEQ'   },
+};
+
+/* ── Relay connection states (see RelayClient::getStateStr) ──────────────── */
+const RELAY_META = {
+  connected:    { pill: 'Connected',     cls: 'connection-pill connected' },
+  reconnecting: { pill: 'Reconnecting…', cls: 'connection-pill'           },
+  unconfigured: { pill: 'No relay',      cls: 'connection-pill error'     },
+  invalid:      { pill: 'Bad relay URL', cls: 'connection-pill error'     },
+  incompatible: { pill: 'Incompatible',  cls: 'connection-pill error'     },
 };
 
 /* ── Apply a status snapshot to the UI ───────────────────────────────────── */
@@ -50,21 +58,25 @@ function applyStatus(d) {
   statSession.textContent    = d.session     || '—';
   statSessionSt.textContent  = d.sessionStatus || '—';
   statTrackRaw.textContent   = d.trackRaw    || '—';
-  statSignalR.textContent    = d.sigRState   || '—';
   statIP.textContent         = d.ip          || '—';
   statRSSI.textContent       = d.rssi != null ? `${d.rssi} dBm` : '—';
 
+  // Relay: "stale" means the relay is up but its own F1 link is down, so the
+  // values above are last-known rather than current.
+  statRelay.textContent = d.relayState
+    ? (d.stale ? `${d.relayState} · stale` : d.relayState)
+    : '—';
+
   // Header pill
-  if (d.sigRState === 'connected') {
-    connPill.textContent  = 'Connected';
-    connPill.className    = 'connection-pill connected';
-  } else if (d.sigRState === 'reconnecting' || d.sigRState === 'negotiating'
-             || d.sigRState === 'connecting') {
-    connPill.textContent  = d.sigRState.charAt(0).toUpperCase() + d.sigRState.slice(1) + '…';
-    connPill.className    = 'connection-pill';
+  const relayMeta = RELAY_META[d.relayState];
+  if (relayMeta) {
+    connPill.textContent = d.stale && d.relayState === 'connected'
+      ? 'Connected · stale'
+      : relayMeta.pill;
+    connPill.className = relayMeta.cls;
   } else {
-    connPill.textContent  = 'Offline';
-    connPill.className    = 'connection-pill error';
+    connPill.textContent = 'Offline';
+    connPill.className   = 'connection-pill error';
   }
 }
 
@@ -97,8 +109,7 @@ async function loadConfig() {
     delayInput.value      = delaySec;
     delayVal.textContent  = delaySec + ' s';
 
-    relayHostInput.value = data.relay_host ?? '';
-    relayPortInput.value = data.relay_port ?? 8000;
+    relayUrlInput.value = data.relay_url ?? '';
   } catch (err) {
     console.warn('Could not load config:', err);
   }
@@ -129,8 +140,7 @@ settingsForm.addEventListener('submit', async (e) => {
     led_count:  parseInt(ledCountInput.value,   10),
     brightness: parseInt(brightnessInput.value, 10),
     delay_ms:   parseInt(delayInput.value,      10) * 1000,
-    relay_host: relayHostInput.value.trim(),
-    relay_port: parseInt(relayPortInput.value, 10) || 8000,
+    relay_url:  relayUrlInput.value.trim(),
   };
 
   try {
@@ -143,7 +153,11 @@ settingsForm.addEventListener('submit', async (e) => {
     if (res.ok) {
       showFeedback('Saved');
     } else {
-      showFeedback('Error saving');
+      // The device rejects a malformed relay_url before applying anything,
+      // and explains why — show that rather than a generic failure.
+      let msg = 'Error saving';
+      try { msg = (await res.json()).error || msg; } catch { /* keep default */ }
+      showFeedback(msg);
     }
   } catch {
     showFeedback('Request failed');

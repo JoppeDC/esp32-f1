@@ -171,6 +171,14 @@ with `stale == false`, and exposes it as `getFreshAgeMs()`. Past
 `STALE_IDLE_TIMEOUT_MS` (5 min), LEDs fall back to IDLE. A dead connection
 delivers no messages at all, so it is covered by the same timer for free.
 
+There is a third case with the same symptom: an unconfigured or unparseable
+relay URL, where fresh state is not merely late but never coming. `loop()`
+therefore calls `RelayClient::isStateExpired(maxAgeMs)`, which returns true when
+the client is not usably configured *or* when nothing fresh has arrived inside
+the window — rather than comparing `getFreshAgeMs()` directly, which reports 0
+while unconfigured and would leave the lamp holding its last flag forever after
+the URL is cleared. `getFreshAgeMs()` remains for the debug UI.
+
 Display priority in `loop()`:
 
 ```
