@@ -23,17 +23,20 @@ public:
 
 private:
     static void bootIndicatorTask(void* arg);
-    TaskHandle_t  _bootTask    = nullptr;
-    volatile bool _bootApMode  = false;
+    volatile TaskHandle_t _bootTask   = nullptr;   // cleared by the task as it exits
+    volatile bool         _bootApMode = false;
+    volatile bool         _bootStop   = false;
 
     // ── Animation state ───────────────────────────────────────────────────────
     F1Flag   _state       = F1Flag::IDLE;
     uint32_t _lastTick    = 0;
     uint16_t _frame       = 0;   // general frame counter per animation
-    uint8_t  _pulseCount  = 0;   // for GREEN: counts completed pulses
     bool     _pulseRising = true; // for GREEN: fade direction
 
-    uint16_t _count       = 60;
+    // FastLED controller over the static buffer, re-pointed to `_count` so a
+    // show() only clocks out the LEDs that exist.
+    CLEDController* _controller = nullptr;
+    uint16_t        _count      = 60;
 
     // ── Per-effect tick handlers ──────────────────────────────────────────────
     void tickIdle();
@@ -45,7 +48,6 @@ private:
     void tickCheq();
 
     // ── Helpers ───────────────────────────────────────────────────────────────
-    void clearAll();
     void fillSolid(CRGB color);
     void setComet(uint16_t pos, CRGB cometColor, CRGB bgColor, uint8_t trailLen);
     void setAlternatingSegments(uint8_t segLen, uint16_t offset,

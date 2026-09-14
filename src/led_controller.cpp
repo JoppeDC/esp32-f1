@@ -15,11 +15,13 @@ LedController leds;
 #define CHEQ_FRAME_MS      60    // chequered sweep
 #define GREEN_PULSE_MS     12    // fade step speed for green pulses
 
-#define GREEN_PULSES        3    // number of pulses before returning to IDLE
-
 void LedController::begin(uint16_t count, uint8_t brightness) {
     _count = constrain(count, 1, MAX_LEDS);
-    FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(ledBuffer, MAX_LEDS);
+    // Register the full buffer (the template needs a compile-time ceiling),
+    // then narrow the controller to the configured count so each show()
+    // costs ~30 µs per real LED rather than ~15 ms for all 500.
+    _controller = &FastLED.addLeds<WS2812B, LED_DATA_PIN, GRB>(ledBuffer, MAX_LEDS);
+    _controller->setLeds(ledBuffer, _count);
     FastLED.setBrightness(brightness);
     FastLED.clear(true);
 }
@@ -30,43 +32,63 @@ void LedController::setBrightness(uint8_t b) {
 
 void LedController::setCount(uint16_t count) {
     uint16_t newCount = constrain(count, 1, MAX_LEDS);
-    // Zero out any LEDs that are being removed
+    if (newCount == _count) return;
     if (newCount < _count) {
+        // WS2812s latch their last value, so blank the LEDs being removed
+        // while the controller still reaches them, then narrow it.
         for (uint16_t i = newCount; i < _count; i++) ledBuffer[i] = CRGB::Black;
         FastLED.show();
     }
     _count = newCount;
+    _controller->setLeds(ledBuffer, _count);
+    _lastTick = 0;   // redraw at the new size on the next tick
 }
 
 // ── Boot indicator ────────────────────────────────────────────────────────────
 // Blinks LED 0 blue while WiFi setup is in progress. setup() blocks inside
 // WiFiManager::autoConnect(), so loop() (and tick()) can't drive the strip;
 // a dedicated FreeRTOS task gives us a heartbeat during that window.
+//
+// The task ends itself when asked rather than being vTaskDelete()d from
+// outside: killing it mid-FastLED.show() would leave the RMT driver's state
+// (and its semaphore) wherever the transmission was, and the next show()
+// from loop() could hang on it.
 
 void LedController::bootIndicatorTask(void* arg) {
     LedController* self = static_cast<LedController*>(arg);
     bool on = false;
-    for (;;) {
+    while (!self->_bootStop) {
         ledBuffer[0] = on ? CRGB::Blue : CRGB::Black;
         FastLED.show();
         on = !on;
-        vTaskDelay(pdMS_TO_TICKS(self->_bootApMode ? 150 : 500));
+        // Sleep in short slices so a stop request is honoured promptly.
+        const uint32_t periodMs = self->_bootApMode ? 150 : 500;
+        for (uint32_t slept = 0; slept < periodMs && !self->_bootStop; slept += 50) {
+            vTaskDelay(pdMS_TO_TICKS(50));
+        }
     }
+    ledBuffer[0] = CRGB::Black;
+    FastLED.show();
+    self->_bootTask = nullptr;   // signals stopBootIndicator()
+    vTaskDelete(nullptr);
 }
 
 void LedController::startBootIndicator() {
     if (_bootTask) return;
     _bootApMode = false;
+    _bootStop   = false;
+    TaskHandle_t handle = nullptr;
     xTaskCreatePinnedToCore(bootIndicatorTask, "bootBlink", 2048, this,
-                            /*priority=*/1, &_bootTask, /*core=*/0);
+                            /*priority=*/1, &handle, /*core=*/0);
+    _bootTask = handle;
 }
 
 void LedController::stopBootIndicator() {
     if (!_bootTask) return;
-    vTaskDelete(_bootTask);
-    _bootTask = nullptr;
-    ledBuffer[0] = CRGB::Black;
-    FastLED.show();
+    _bootStop = true;
+    // Wait for the task to finish its frame and exit, so the strip is ours
+    // again before loop() starts drawing.
+    while (_bootTask) vTaskDelay(1);
 }
 
 void LedController::setBootIndicatorApMode(bool apActive) {
@@ -77,7 +99,6 @@ void LedController::setState(F1Flag flag) {
     if (_state == flag) return;
     _state       = flag;
     _frame       = 0;
-    _pulseCount  = 0;
     _pulseRising = true;
     _lastTick    = 0;   // force immediate first frame
 }
@@ -110,16 +131,14 @@ void LedController::tickIdle() {
     _frame++;
 }
 
-// ── CLEAR — 3 green pulses, then back to IDLE ─────────────────────────────────
+// ── CLEAR — green pulses ──────────────────────────────────────────────────────
+// Pulses for as long as the state is CLEAR. How long that is (the 10 s
+// window before falling back to IDLE) is policy and lives in main.cpp; this
+// renderer never changes its own state.
 
 void LedController::tickClear() {
     if (millis() - _lastTick < GREEN_PULSE_MS) return;
     _lastTick = millis();
-
-    if (_pulseCount >= GREEN_PULSES) {
-        setState(F1Flag::IDLE);
-        return;
-    }
 
     // _frame goes 0→255 (rising) then 255→0 (falling)
     if (_pulseRising) {
@@ -127,10 +146,7 @@ void LedController::tickClear() {
         if (_frame >= 255) _pulseRising = false;
     } else {
         _frame = (_frame > 5) ? _frame - 5 : 0;
-        if (_frame == 0) {
-            _pulseRising = true;
-            _pulseCount++;
-        }
+        if (_frame == 0) _pulseRising = true;
     }
 
     CRGB color = CRGB(0, (uint8_t)_frame, 0);
@@ -211,10 +227,6 @@ void LedController::tickCheq() {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-void LedController::clearAll() {
-    for (uint16_t i = 0; i < _count; i++) ledBuffer[i] = CRGB::Black;
-}
 
 void LedController::fillSolid(CRGB color) {
     for (uint16_t i = 0; i < _count; i++) ledBuffer[i] = color;
