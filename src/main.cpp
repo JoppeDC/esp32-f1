@@ -29,6 +29,7 @@ static constexpr uint32_t STALE_IDLE_TIMEOUT_MS = 300000;   // 5 min
 static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
 static uint32_t _clearAppliedAt  = 0;
 static bool     _clearTimerActive = false;
+static bool     _wasExpired       = false;
 
 // Wrap-safe elapsed-time check for millis()-based timers (uint32_t subtraction).
 static inline bool elapsedMs(uint32_t startMs, uint32_t durationMs, uint32_t nowMs) {
@@ -83,21 +84,17 @@ void onRelayConfigChanged() {
 
 // ── Relay message handler ─────────────────────────────────────────────────────
 
-F1Flag lastQueuedFlag = F1Flag::IDLE;
-
 static void onRelayMessage(F1Flag display, JsonObject msg) {
     // Informational fields for the lamp web UI
     f1State.trackStatusRaw = String(msg["track"]   | "");
     f1State.sessionType    = String(msg["type"]    | "");
-    f1State.sessionStatus  = F1State::sessionStatusFromString(msg["session"] | "");
+    f1State.sessionStatus  = sessionStatusFromName(msg["session"] | "");
 
-    if (display != lastQueuedFlag) {
-        F1Flag prev = lastQueuedFlag;
-        lastQueuedFlag = display;
-        f1State.queueFlag(display, config.delay_ms);
-        Serial.printf("[F1] queued: %s → %s (delay %lu ms, queue %d)\n",
-                      F1State::flagNameFor(prev), F1State::flagNameFor(display),
-                      config.delay_ms, f1State._queueCount);
+    // The relay resends full state on every message; the queue dedups.
+    if (f1State.flags.push(display, millis())) {
+        Serial.printf("[F1] queued: %s (delay %lu ms, queue %u)\n",
+                      flagName(display), (unsigned long)config.delay_ms,
+                      f1State.flags.depth());
     }
 
     webServer.sendStatus();
@@ -158,16 +155,29 @@ void setup() {
 void loop() {
     relay.tick();
 
+    // No fresh authoritative state: the relay lost F1, we lost the relay, or
+    // no relay is configured. Whatever is queued or shown may be hours old,
+    // so drop it. Resetting (rather than only masking the display) matters
+    // when the relay comes back: the new flag must queue from IDLE and apply
+    // after the delay, instead of the old flag reappearing for 45 s while the
+    // new one waits in the queue.
+    const bool expired = relay.isStateExpired(STALE_IDLE_TIMEOUT_MS);
+    if (expired && !_wasExpired) {
+        Serial.println("[F1] No fresh state — resetting to IDLE");
+        f1State.flags.reset();
+        webServer.sendStatus();
+    }
+    _wasExpired = expired;
+
     // Promote pending flag once delay has elapsed
-    F1Flag before = f1State.currentFlag;
-    f1State.tick(config.delay_ms);
-    if (f1State.currentFlag != before) {
-        Serial.printf("[F1] Flag applied: %s\n", f1State.flagName());
+    if (f1State.flags.tick(millis(), config.delay_ms)) {
+        Serial.printf("[F1] Flag applied: %s\n", flagName(f1State.flags.current()));
         webServer.sendStatus();
     }
 
-    if (f1State.currentFlag != _lastAppliedFlag) {
-        _lastAppliedFlag = f1State.currentFlag;
+    const F1Flag currentFlag = f1State.flags.current();
+    if (currentFlag != _lastAppliedFlag) {
+        _lastAppliedFlag = currentFlag;
         if (_lastAppliedFlag == F1Flag::CLEAR) {
             _clearAppliedAt = millis();
             _clearTimerActive = true;
@@ -184,12 +194,11 @@ void loop() {
     //
     // Priority: override → no fresh state → CLEAR window expired → live flag.
     const bool overrideActive = webServer.isOverrideActive();
-    F1Flag liveTarget = f1State.currentFlag;
+    F1Flag liveTarget = currentFlag;
     uint32_t nowMs = millis();
-    if (relay.isStateExpired(STALE_IDLE_TIMEOUT_MS)) {
-        // Nothing authoritative — the relay lost F1, we lost the relay, or no
-        // relay is configured at all. Either way, stop asserting a flag that
-        // may be hours old.
+    if (expired) {
+        // A stale relay still sends messages, so the queue can refill while
+        // expired; keep masking the display until fresh state returns.
         liveTarget = F1Flag::IDLE;
     } else if (liveTarget == F1Flag::CLEAR &&
                _clearTimerActive &&

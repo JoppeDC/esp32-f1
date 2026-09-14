@@ -7,17 +7,15 @@
 #include <WiFi.h>
 #include <ArduinoJson.h>
 
-extern F1Flag lastQueuedFlag;
-
 F1WebServer webServer;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 String F1WebServer::buildStatusJson() {
     JsonDocument doc;
-    doc["flag"]          = f1State.flagName();
+    doc["flag"]          = flagName(f1State.flags.current());
     doc["session"]       = f1State.sessionType.length() ? f1State.sessionType : "—";
-    doc["sessionStatus"] = f1State.sessionStatusName();
+    doc["sessionStatus"] = sessionStatusName(f1State.sessionStatus);
     doc["trackRaw"]      = f1State.trackStatusRaw;
     doc["relayState"]    = relay.getStateStr();
     doc["stale"]         = relay.isStale();
@@ -25,7 +23,13 @@ String F1WebServer::buildStatusJson() {
     doc["ip"]            = WiFi.localIP().toString();
     doc["rssi"]          = WiFi.RSSI();
     doc["delayMs"]       = config.delay_ms;
-    doc["queueDepth"]    = f1State._queueCount;
+    doc["queueDepth"]    = f1State.flags.depth();
+    // Next flag waiting in the delay queue and how long until it shows, so the
+    // dashboard can count down instead of just sitting on the old flag.
+    if (f1State.flags.hasPending()) {
+        doc["pendingFlag"] = flagName(f1State.flags.pendingFlag());
+        doc["pendingInMs"] = f1State.flags.pendingInMs(millis(), config.delay_ms);
+    }
 
     String out;
     serializeJson(doc, out);
@@ -73,16 +77,16 @@ String F1WebServer::buildDebugLiveJson() {
 
     // F1 State
     JsonObject f1         = doc["f1"].to<JsonObject>();
-    f1["flag"]            = f1State.flagName();
-    f1["queueDepth"]      = f1State._queueCount;
+    f1["flag"]            = flagName(f1State.flags.current());
+    f1["queueDepth"]      = f1State.flags.depth();
     f1["trackStatusRaw"]  = f1State.trackStatusRaw;
     f1["sessionType"]     = f1State.sessionType.length() ? f1State.sessionType : "—";
-    f1["sessionStatus"]   = f1State.sessionStatusName();
-    f1["lastQueuedFlag"]  = F1State::flagNameFor(lastQueuedFlag);
+    f1["sessionStatus"]   = sessionStatusName(f1State.sessionStatus);
+    f1["lastQueuedFlag"]  = flagName(f1State.flags.lastQueued());
 
     // LED
     JsonObject led        = doc["led"].to<JsonObject>();
-    led["animation"]      = F1State::flagNameFor(leds.getState());
+    led["animation"]      = flagName(leds.getState());
     led["brightness"]     = config.brightness;
     led["ledCount"]       = config.led_count;
     led["dataPin"]        = LED_DATA_PIN;
@@ -90,23 +94,11 @@ String F1WebServer::buildDebugLiveJson() {
     // Override
     JsonObject ovr        = doc["override"].to<JsonObject>();
     ovr["active"]         = _flagOverride;
-    ovr["flag"]           = _flagOverride ? F1State::flagNameFor(_overrideFlag) : "";
+    ovr["flag"]           = _flagOverride ? flagName(_overrideFlag) : "";
 
     String out;
     serializeJson(doc, out);
     return out;
-}
-
-// Helper: map flag name string to F1Flag enum
-static F1Flag parseFlagName(const char* name) {
-    if (strcmp(name, "IDLE")   == 0) return F1Flag::IDLE;
-    if (strcmp(name, "CLEAR")  == 0) return F1Flag::CLEAR;
-    if (strcmp(name, "YELLOW") == 0) return F1Flag::YELLOW;
-    if (strcmp(name, "VSC")    == 0) return F1Flag::VSC;
-    if (strcmp(name, "SC")     == 0) return F1Flag::SC;
-    if (strcmp(name, "RED")    == 0) return F1Flag::RED_FLAG;
-    if (strcmp(name, "CHEQ")   == 0) return F1Flag::CHEQ;
-    return F1Flag::IDLE;
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
@@ -165,7 +157,7 @@ void F1WebServer::setupRoutes() {
                 relayUrl = String(doc["relay_url"].as<const char*>());
                 relayUrl.trim();
                 RelayUrl parsed;
-                if (relayUrl.length() > 0 && !parseRelayUrl(relayUrl, parsed)) {
+                if (relayUrl.length() > 0 && !parseRelayUrl(relayUrl.c_str(), parsed)) {
                     req->send(400, "application/json",
                               "{\"error\":\"relay_url must be ws://host[:port][/path] "
                               "or wss://host[:port][/path]\"}");
@@ -259,13 +251,13 @@ void F1WebServer::setupRoutes() {
                 return;
             }
 
-            _overrideFlag = parseFlagName(flag);
+            _overrideFlag = flagFromName(flag);
             _flagOverride = true;
 
             JsonDocument resp;
             resp["ok"]       = true;
             resp["override"] = true;
-            resp["flag"]     = F1State::flagNameFor(_overrideFlag);
+            resp["flag"]     = flagName(_overrideFlag);
             String out;
             serializeJson(resp, out);
             req->send(200, "application/json", out);

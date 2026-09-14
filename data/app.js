@@ -42,17 +42,34 @@ const RELAY_META = {
   incompatible: { pill: 'Incompatible',  cls: 'connection-pill error'     },
 };
 
+/* ── Pending-flag countdown ──────────────────────────────────────────────── */
+// The device only pushes a status event when something changes, so the
+// countdown to the next queued flag is kept locally from the last snapshot.
+let currentMeta = FLAG_META.IDLE;
+let pending     = null;   // { label, dueAt } or null
+
+function renderSub() {
+  if (pending) {
+    const secs = Math.max(0, Math.ceil((pending.dueAt - Date.now()) / 1000));
+    flagSub.textContent = `→ ${pending.label} in ${secs} s`;
+  } else {
+    flagSub.textContent = currentMeta.sub;
+  }
+}
+setInterval(renderSub, 500);
+
 /* ── Apply a status snapshot to the UI ───────────────────────────────────── */
 function applyStatus(d) {
   // Flag indicator
-  const meta = FLAG_META[d.flag] || FLAG_META['IDLE'];
-  flagIndicator.className = 'flag-indicator ' + meta.css;
-  flagName.textContent = meta.label;
+  currentMeta = FLAG_META[d.flag] || FLAG_META.IDLE;
+  flagIndicator.className = 'flag-indicator ' + currentMeta.css;
+  flagName.textContent = currentMeta.label;
 
-  // Sub-label: show "pending" info while delay is counting down
-  flagSub.textContent = d.pendingFlag
-    ? `→ ${(FLAG_META[d.pendingFlag] || { label: d.pendingFlag }).label} in ${Math.round(d.delayMs / 1000)} s`
-    : meta.sub;
+  pending = d.pendingFlag
+    ? { label: (FLAG_META[d.pendingFlag] || { label: d.pendingFlag }).label,
+        dueAt: Date.now() + (d.pendingInMs ?? 0) }
+    : null;
+  renderSub();
 
   // Stats
   statSession.textContent    = d.session     || '—';

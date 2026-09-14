@@ -3,25 +3,8 @@
 #include <ArduinoJson.h>
 #include <WebSocketsClient.h>
 #include <functional>
-#include "f1_state.h"
-
-// A relay endpoint, parsed out of a user-supplied URL.
-struct RelayUrl {
-    bool     tls  = false;
-    String   host;
-    uint16_t port = 0;
-    String   path;
-};
-
-// Parses "ws://host[:port][/path]" or "wss://host[:port][/path]" and leaves
-// `out` untouched on failure.
-//
-// The scheme is required. Guessing it fails in both directions — assume wss and
-// a LAN user typing "192.168.1.5:8000" breaks, assume ws and anyone typing a
-// public hostname breaks — so a rejection the UI can show beats a silent wrong
-// guess. Default port is 443 for wss and 80 for ws; an omitted path becomes
-// "/ws". IPv6 literals are not supported.
-bool parseRelayUrl(const String& url, RelayUrl& out);
+#include "f1_flags.h"
+#include "relay_url.h"
 
 // Client for the self-hosted F1 relay (lamp protocol v1). Every incoming
 // message is the full state; `display` is the only field that drives LEDs.
@@ -60,19 +43,19 @@ public:
     // Current reconnect interval, for the debug UI.
     uint32_t getReconnectDelayMs() const { return _backoffMs; }
 
-    uint32_t getLastMessageAgoMs() const { return usable() ? millis() - _lastMessageMs : 0; }
+    // Age of the last message of any kind; UINT32_MAX while not usably
+    // configured, which the debug UI renders as "—" rather than "0.0s ago".
+    uint32_t getLastMessageAgoMs() const { return usable() ? millis() - _lastMessageMs : UINT32_MAX; }
 
-    // Age of the last message the relay vouched for (stale == false). Covers
-    // both a stale relay and a dead link: a dead link delivers no messages at
-    // all, so this keeps climbing either way. 0 while not usably configured.
-    uint32_t getFreshAgeMs() const { return usable() ? millis() - _lastFreshMs : 0; }
+    // How long the relay has failed to vouch for its state: time since the
+    // link dropped, or since it last said stale:false. 0 while connected and
+    // fresh (the relay only sends on change, so silence there is not age).
+    // UINT32_MAX while not usably configured — nothing fresh is ever coming.
+    uint32_t getFreshAgeMs() const { return usable() ? millis() - _lastFreshMs : UINT32_MAX; }
 
     // True when there is no state worth displaying: no usable relay
-    // configured (so none is ever coming), or nothing fresh for maxAgeMs.
-    bool isStateExpired(uint32_t maxAgeMs) const {
-        if (!usable()) return true;
-        return (millis() - _lastFreshMs) >= maxAgeMs;
-    }
+    // configured, or nothing fresh for maxAgeMs.
+    bool isStateExpired(uint32_t maxAgeMs) const { return getFreshAgeMs() >= maxAgeMs; }
 
 private:
     WebSocketsClient _ws;
@@ -94,7 +77,6 @@ private:
     bool usable() const { return _configured && _urlValid; }
 
     void onWsEvent(WStype_t type, uint8_t* payload, size_t length);
-    static F1Flag flagFromDisplay(const char* display);
 };
 
 extern RelayClient relay;
