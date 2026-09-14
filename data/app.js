@@ -113,7 +113,25 @@ function connectSSE() {
   };
 }
 
+/* ── API helpers ─────────────────────────────────────────────────────────── */
+// The device refuses state-changing requests without this header (it forces
+// a CORS preflight, so another site's page can't reboot the lamp).
+const API_HEADERS = { 'Content-Type': 'application/json', 'X-F1-Sensor': '1' };
+
+function apiPost(path, body) {
+  return fetch(path, {
+    method:  'POST',
+    headers: API_HEADERS,
+    body:    body === undefined ? undefined : JSON.stringify(body),
+  });
+}
+
 /* ── Load config from device ─────────────────────────────────────────────── */
+// Until the current config has been shown, the relay URL field is empty for
+// the wrong reason, and saving would persist that emptiness and disable the
+// relay. The submit handler only sends relay_url once this is true.
+let configLoaded = false;
+
 async function loadConfig() {
   try {
     const res  = await fetch('/api/config');
@@ -127,8 +145,10 @@ async function loadConfig() {
     delayVal.textContent  = delaySec + ' s';
 
     relayUrlInput.value = data.relay_url ?? '';
+    configLoaded = true;
   } catch (err) {
     console.warn('Could not load config:', err);
+    showFeedback('Could not load settings — reload the page');
   }
 }
 
@@ -157,15 +177,11 @@ settingsForm.addEventListener('submit', async (e) => {
     led_count:  parseInt(ledCountInput.value,   10),
     brightness: parseInt(brightnessInput.value, 10),
     delay_ms:   parseInt(delayInput.value,      10) * 1000,
-    relay_url:  relayUrlInput.value.trim(),
   };
+  if (configLoaded) payload.relay_url = relayUrlInput.value.trim();
 
   try {
-    const res = await fetch('/api/config', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(payload),
-    });
+    const res = await apiPost('/api/config', payload);
 
     if (res.ok) {
       showFeedback('Saved');
@@ -188,18 +204,24 @@ function showFeedback(msg) {
 }
 
 /* ── Device actions ──────────────────────────────────────────────────────── */
-restartBtn.addEventListener('click', async () => {
+async function deviceAction(path) {
+  try {
+    await apiPost(path);
+    connPill.textContent = 'Restarting…';
+    connPill.className   = 'connection-pill';
+  } catch {
+    showFeedback('Request failed');
+  }
+}
+
+restartBtn.addEventListener('click', () => {
   if (!confirm('Restart the device?')) return;
-  await fetch('/api/restart', { method: 'POST' });
-  connPill.textContent = 'Restarting…';
-  connPill.className   = 'connection-pill';
+  deviceAction('/api/restart');
 });
 
-wifiResetBtn.addEventListener('click', async () => {
+wifiResetBtn.addEventListener('click', () => {
   if (!confirm('This will erase WiFi credentials and open the setup portal on next boot. Continue?')) return;
-  await fetch('/api/wifi/reset', { method: 'POST' });
-  connPill.textContent = 'Restarting…';
-  connPill.className   = 'connection-pill';
+  deviceAction('/api/wifi/reset');
 });
 
 /* ── Init ────────────────────────────────────────────────────────────────── */

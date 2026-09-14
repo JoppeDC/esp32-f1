@@ -18,6 +18,8 @@ private:
     AsyncWebServer   _server{80};
     AsyncEventSource _events{"/events"};
 
+    bool _fsMounted = false;
+
     // Debug override state (RAM only, cleared on reboot)
     bool   _flagOverride = false;
     F1Flag _overrideFlag = F1Flag::IDLE;

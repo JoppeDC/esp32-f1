@@ -118,15 +118,27 @@ static bool wholeBody(AsyncWebServerRequest* req, size_t index, size_t len, size
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 void F1WebServer::begin() {
-    if (!LittleFS.begin()) {
-        Serial.println("[Web] LittleFS mount failed");
-        return;
-    }
+    // A missing or unmounted filesystem (e.g. after a partition-table change
+    // without re-running uploadfs) must not take the API down with it — the
+    // API is the only way to reconfigure the lamp.
+    _fsMounted = LittleFS.begin();
+    if (!_fsMounted) Serial.println("[Web] LittleFS mount failed — API only, no dashboard");
 
     setupRoutes();
     _server.addHandler(&_events);
     _server.begin();
     Serial.println("[Web] Server started on port 80");
+}
+
+// State-changing endpoints require a custom request header. A cross-origin
+// page can fire a plain POST at http://f1sensor.local without asking, but a
+// custom header forces a CORS preflight, which this server never answers.
+// Cheap insurance against a random web page rebooting the lamp or wiping
+// its WiFi credentials.
+static bool requireApiHeader(AsyncWebServerRequest* req) {
+    if (req->hasHeader("X-F1-Sensor")) return true;
+    req->send(403, "application/json", "{\"error\":\"missing X-F1-Sensor header\"}");
+    return false;
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
@@ -160,6 +172,7 @@ void F1WebServer::setupRoutes() {
         [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
            size_t index, size_t total) {
             if (!wholeBody(req, index, len, total)) return;
+            if (!requireApiHeader(req)) return;
 
             JsonDocument doc;
             DeserializationError err = deserializeJson(doc, (const char*)data, len);
@@ -202,19 +215,22 @@ void F1WebServer::setupRoutes() {
     );
 
     // ── POST /api/restart ─────────────────────────────────────────────────────
+    // Reboot once the response has left, rather than delay()ing on the
+    // network task and hoping it got out.
     _server.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* req) {
+        if (!requireApiHeader(req)) return;
+        req->onDisconnect([]() { ESP.restart(); });
         req->send(200, "application/json", "{\"ok\":true}");
-        delay(500);
-        ESP.restart();
     });
 
     // ── POST /api/wifi/reset — clears WiFiManager credentials ────────────────
     _server.on("/api/wifi/reset", HTTP_POST, [](AsyncWebServerRequest* req) {
+        if (!requireApiHeader(req)) return;
+        req->onDisconnect([]() {
+            WiFi.disconnect(true, true);   // erase saved credentials
+            ESP.restart();
+        });
         req->send(200, "application/json", "{\"ok\":true}");
-        delay(500);
-        // Erase WiFiManager NVS partition then restart
-        WiFi.disconnect(true, true);
-        ESP.restart();
     });
 
     // ── GET /api/debug/system — static system & WiFi info (called once) ─────
@@ -234,6 +250,7 @@ void F1WebServer::setupRoutes() {
         [this](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                size_t index, size_t total) {
             if (!wholeBody(req, index, len, total)) return;
+            if (!requireApiHeader(req)) return;
 
             JsonDocument doc;
             if (deserializeJson(doc, (const char*)data, len)) {
@@ -269,7 +286,9 @@ void F1WebServer::setupRoutes() {
     });
 
     // ── Static files from LittleFS (after API routes to avoid unnecessary lookups)
-    _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+    if (_fsMounted) {
+        _server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+    }
 
     // 404
     _server.onNotFound([](AsyncWebServerRequest* req) {

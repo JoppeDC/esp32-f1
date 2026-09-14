@@ -32,7 +32,7 @@ async function setOverride(flag) {
   try {
     await fetch('/api/flag/override', {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-F1-Sensor': '1' },
       body:    JSON.stringify({ flag }),
     });
     pollLive();   // refresh immediately
@@ -94,6 +94,7 @@ function applyLive(d) {
   setText('relay-last-msg',  fmtAgo(rl.lastMessageAgoMs));
   setText('relay-fresh',     fmtAgo(rl.freshAgeMs));
   setText('relay-stale',     rl.stale ? 'yes' : 'no');
+  setText('relay-last-disc', rl.lastDisconnect || '—');
 
   // F1 State
   const f1 = d.f1 || {};
