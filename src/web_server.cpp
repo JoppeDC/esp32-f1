@@ -74,6 +74,7 @@ String F1WebServer::buildDebugLiveJson() {
     rl["lastMessageAgoMs"]  = relay.getLastMessageAgoMs();
     rl["freshAgeMs"]        = relay.getFreshAgeMs();
     rl["stale"]             = relay.isStale();
+    rl["lastDisconnect"]    = relay.getLastDisconnectReason();
 
     // F1 State
     JsonObject f1         = doc["f1"].to<JsonObject>();

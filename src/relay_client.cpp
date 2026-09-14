@@ -1,15 +1,87 @@
 #include "relay_client.h"
+#include <ArduinoJson.h>
 
 RelayClient relay;
 
+// ── Loop-task side ────────────────────────────────────────────────────────────
+
 void RelayClient::begin(const String& url) {
+    if (_task) return;
+
+    _urlQueue      = xQueueCreate(1, sizeof(UrlCommand));
+    _snapshotQueue = xQueueCreate(SNAPSHOT_QUEUE_LEN, sizeof(RelaySnapshot));
+
+    _ws.onEvent([](WStype_t type, uint8_t* payload, size_t length) {
+        relay.onWsEvent(type, payload, length);
+    });
+
+    requestReconfigure(url);
+
+    // Core 0 on dual-core parts — alongside WiFi, away from the LED loop on
+    // core 1 — and the only core on the C3. Same priority as the loop task;
+    // the connect path blocks in the socket layer, so the loop keeps running
+    // through it either way.
+    xTaskCreatePinnedToCore(taskEntry, "relay", TASK_STACK_BYTES, this,
+                            /*priority=*/1, &_task, /*core=*/0);
+}
+
+void RelayClient::requestReconfigure(const String& url) {
+    if (!_urlQueue) return;
+    UrlCommand cmd;
+    strlcpy(cmd.url, url.c_str(), sizeof(cmd.url));
+    xQueueOverwrite(_urlQueue, &cmd);
+}
+
+void RelayClient::tick() {
+    if (!_snapshotQueue) return;
+    RelaySnapshot snap;
+    while (xQueueReceive(_snapshotQueue, &snap, 0) == pdTRUE) {
+        if (_callback) _callback(snap);
+    }
+}
+
+const char* RelayClient::getStateStr() const {
+    if (!_configured)       return "unconfigured";
+    if (!_urlValid)         return "invalid";
+    if (_protocolMismatch)  return "incompatible";
+    return _connected ? "connected" : "reconnecting";
+}
+
+// ── Relay task ────────────────────────────────────────────────────────────────
+
+void RelayClient::taskEntry(void* arg) {
+    static_cast<RelayClient*>(arg)->run();
+}
+
+void RelayClient::run() {
+    for (;;) {
+        UrlCommand cmd;
+        if (xQueueReceive(_urlQueue, &cmd, 0) == pdTRUE) configure(cmd.url);
+
+        if (usable()) {
+            _ws.loop();
+
+            // The relay sends state only on connect and on change, so silence
+            // on a healthy link means "unchanged", not "lost". Keep the
+            // freshness clock running while connected and the relay vouches
+            // for its state; it only starts ageing after a disconnect or a
+            // stale:true message.
+            if (_connected && !_stale) _lastFreshMs = millis();
+        }
+
+        vTaskDelay(1);   // cede the core; message latency stays within a tick
+    }
+}
+
+void RelayClient::configure(const char* url) {
     _ws.disconnect();
     _connected        = false;
     _stale            = false;
     _protocolMismatch = false;
     _urlValid         = false;
     _backoffMs        = RECONNECT_INTERVAL_MS;
-    _configured       = url.length() > 0;
+    _lastDisconnectReason[0] = '\0';
+    _configured       = url[0] != '\0';
 
     if (!_configured) {
         Serial.println("[Relay] No relay URL configured");
@@ -17,15 +89,11 @@ void RelayClient::begin(const String& url) {
     }
 
     RelayUrl u;
-    if (!parseRelayUrl(url.c_str(), u)) {
-        Serial.printf("[Relay] Invalid relay URL: %s\n", url.c_str());
+    if (!parseRelayUrl(url, u)) {
+        Serial.printf("[Relay] Invalid relay URL: %s\n", url);
         return;
     }
     _urlValid = true;
-
-    _ws.onEvent([](WStype_t type, uint8_t* payload, size_t length) {
-        relay.onWsEvent(type, payload, length);
-    });
 
     // TLS without certificate validation: beginSSL's default empty fingerprint
     // resolves to WiFiClientSecure::setInsecure(). The relay carries public
@@ -39,42 +107,16 @@ void RelayClient::begin(const String& url) {
     }
 
     _ws.setReconnectInterval(_backoffMs);
-    // Protocol-level ping every 15 s; treat 2 missed pongs (3 s timeout) as dead.
-    _ws.enableHeartbeat(15000, 3000, 2);
+    // Client-side liveness check, no stricter than the relay's own policy
+    // (it pings every 30 s and drops after two missed pongs). A dead link is
+    // noticed within ~80 s worst case, well inside the 5-minute freshness
+    // window; anything tighter tore down healthy sockets on 2.4 GHz hiccups
+    // and paid a blocking TLS reconnect plus a backoff step each time.
+    _ws.enableHeartbeat(30000, 10000, 2);
     _lastMessageMs = millis();
     _lastFreshMs   = millis();
     Serial.printf("[Relay] Connecting to %s://%s:%u%s\n",
                   u.tls ? "wss" : "ws", u.host, u.port, u.path);
-}
-
-void RelayClient::requestReconfigure(const String& url) {
-    _pendingUrl = url;
-    _reconfigurePending = true;
-}
-
-void RelayClient::tick() {
-    if (_reconfigurePending) {
-        _reconfigurePending = false;
-        // Copy first: the async_tcp task may reassign _pendingUrl while
-        // begin() is still reading it (begin blocks in _ws.disconnect()).
-        const String url = _pendingUrl;
-        begin(url);
-    }
-    if (!usable()) return;
-    _ws.loop();
-
-    // The relay sends state only on connect and on change, so silence on a
-    // healthy link means "unchanged", not "lost". Keep the freshness clock
-    // running while connected and the relay vouches for its state; it only
-    // starts ageing on a disconnect or a stale:true message.
-    if (_connected && !_stale) _lastFreshMs = millis();
-}
-
-const char* RelayClient::getStateStr() const {
-    if (!_configured)       return "unconfigured";
-    if (!_urlValid)         return "invalid";
-    if (_protocolMismatch)  return "incompatible";
-    return _connected ? "connected" : "reconnecting";
 }
 
 void RelayClient::onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
@@ -82,24 +124,37 @@ void RelayClient::onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
         case WStype_CONNECTED:
             _connected     = true;
             _lastMessageMs = millis();
-            _backoffMs     = RECONNECT_INTERVAL_MS;
-            _ws.setReconnectInterval(_backoffMs);
+            _lastDisconnectReason[0] = '\0';
+            // Backoff is deliberately not reset here: a relay at its
+            // subscriber limit accepts the handshake and then closes with
+            // 1013, and resetting on the handshake kept every over-limit
+            // lamp hammering it at 5–10 s forever. It resets on the first
+            // message instead (see WStype_TEXT).
             Serial.println("[Relay] Connected");
             break;
 
         case WStype_DISCONNECTED:
-            if (_connected) Serial.println("[Relay] Disconnected");
+            // The library attaches a reason for handshake-level failures
+            // ("HTTP 301", "WebSocket handshake failed - HTTP 404", "Header
+            // response timeout", "Connection lost"); a plain TCP connect
+            // failure and a WebSocket close frame arrive with no payload, so
+            // a 1013 subscriber-limit close is indistinguishable from any
+            // other drop — backing off is the only response available.
+            if (payload && length) {
+                snprintf(_lastDisconnectReason, sizeof(_lastDisconnectReason),
+                         "%.*s", (int)length, (const char*)payload);
+                Serial.printf("[Relay] Disconnected: %s\n", _lastDisconnectReason);
+            } else if (_connected) {
+                Serial.println("[Relay] Disconnected");
+            }
             _connected = false;
             // Fires on every failed retry as well as on a real disconnect, so
-            // the interval escalates on its own. The library parses the close
-            // code only for a debug print and never surfaces it, so a 1013
-            // "subscriber limit" close is indistinguishable from any other
-            // drop — backing off is the only response available to us.
+            // the interval escalates on its own.
             if (_backoffMs < RECONNECT_INTERVAL_MAX_MS) {
                 const uint32_t next = _backoffMs * 2;
                 _backoffMs = (next > RECONNECT_INTERVAL_MAX_MS) ? RECONNECT_INTERVAL_MAX_MS : next;
                 _ws.setReconnectInterval(_backoffMs);
-                Serial.printf("[Relay] Reconnecting in %lu ms\n", _backoffMs);
+                Serial.printf("[Relay] Reconnecting in %lu ms\n", (unsigned long)_backoffMs);
             }
             break;
 
@@ -127,12 +182,29 @@ void RelayClient::onWsEvent(WStype_t type, uint8_t* payload, size_t length) {
 
             if (!doc["display"].is<const char*>()) return;
 
+            // A real message on a live socket: the connection is good, so
+            // the next drop starts the backoff from the bottom again.
+            if (_backoffMs != RECONNECT_INTERVAL_MS) {
+                _backoffMs = RECONNECT_INTERVAL_MS;
+                _ws.setReconnectInterval(_backoffMs);
+            }
+
             _stale = doc["stale"] | false;
             if (!_stale) _lastFreshMs = millis();
 
-            // doc.as<JsonObject>() is a lightweight view into `doc`; it is
-            // only valid for the duration of this callback invocation.
-            if (_callback) _callback(flagFromName(doc["display"]), doc.as<JsonObject>());
+            RelaySnapshot snap;
+            snap.display = flagFromName(doc["display"]);
+            snap.stale   = _stale;
+            snap.session = sessionStatusFromName(doc["session"] | "");
+            strlcpy(snap.track, doc["track"] | "", sizeof(snap.track));
+            strlcpy(snap.type,  doc["type"]  | "", sizeof(snap.type));
+
+            if (xQueueSend(_snapshotQueue, &snap, 0) != pdTRUE) {
+                // Only if loop() has stalled for eight state changes; the
+                // relay coalesces to one message per change, so this is a
+                // symptom of something else being wrong.
+                Serial.println("[Relay] Snapshot queue full — message dropped");
+            }
             break;
         }
 

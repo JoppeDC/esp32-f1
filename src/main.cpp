@@ -1,7 +1,6 @@
 #include <Arduino.h>
 #include <WiFiManager.h>
 #include <ESPmDNS.h>
-#include <ArduinoJson.h>
 
 #include "config.h"
 #include "f1_state.h"
@@ -103,16 +102,17 @@ static void applyStagedConfig() {
 
 // ── Relay message handler ─────────────────────────────────────────────────────
 
-static void onRelayMessage(F1Flag display, JsonObject msg) {
+// Runs on the loop task (RelayClient::tick drains the relay task's queue).
+static void onRelayMessage(const RelaySnapshot& msg) {
     // Informational fields for the lamp web UI
-    f1State.trackStatusRaw = String(msg["track"]   | "");
-    f1State.sessionType    = String(msg["type"]    | "");
-    f1State.sessionStatus  = sessionStatusFromName(msg["session"] | "");
+    f1State.trackStatusRaw = msg.track;
+    f1State.sessionType    = msg.type;
+    f1State.sessionStatus  = msg.session;
 
     // The relay resends full state on every message; the queue dedups.
-    if (f1State.flags.push(display, millis())) {
+    if (f1State.flags.push(msg.display, millis())) {
         Serial.printf("[F1] queued: %s (delay %lu ms, queue %u)\n",
-                      flagName(display), (unsigned long)config.delay_ms,
+                      flagName(msg.display), (unsigned long)config.delay_ms,
                       f1State.flags.depth());
     }
 
@@ -162,7 +162,7 @@ void setup() {
     // Start web server (serves UI + SSE)
     webServer.begin();
 
-    // Wire up the relay client and start connecting
+    // Wire up the relay client and start its task
     relay.setCallback(onRelayMessage);
     relay.begin(config.relay_url);
 
