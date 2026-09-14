@@ -14,8 +14,8 @@ Flash it, join your WiFi, and it's live — no account, no key, no configuration
 - **Live F1 data** — one WebSocket to the relay; every message is the complete
   state, so there's nothing to resync after a reconnect
 - **LED animations** — distinct effects per flag state: comet chase
-  (idle/yellow), alternating segments (VSC/SC/red), timed green pulses
-  (10-second clear window), chequered sweep (finish)
+  (idle/yellow), alternating segments (VSC/SC), red breathing pulse, timed
+  green pulses (10-second clear window), chequered sweep (finish)
 - **Configurable delay** — queues flag changes with a configurable delay
   (default 45 s) so LED state matches your broadcast feed
 - **Web UI** — a local dashboard over HTTP with real-time SSE updates for status
@@ -73,6 +73,17 @@ pio run -t uploadfs          # upload web UI files to LittleFS (once, and again 
 pio device monitor           # optional: watch serial logs
 ```
 
+The default env is `esp32c3`; pass `-e esp32dev` for a classic ESP32.
+
+### Running the tests
+
+The delay queue, the relay URL parser and the flag-name tables are plain C++
+with no Arduino dependency, and have Unity tests that run on the host:
+
+```sh
+pio test -e native
+```
+
 ### 4. First boot — WiFi provisioning
 
 On first boot (or after `/api/wifi/reset`) the device has no saved credentials
@@ -123,7 +134,7 @@ work over `wss://` with no extra setup.
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/status` | GET | Current flag/session state |
+| `/api/status` | GET | Current flag/session state, plus the next queued flag and its countdown |
 | `/api/config` | GET | Read LED count, brightness, delay, relay URL |
 | `/api/config` | POST | Update config (JSON body) |
 | `/api/restart` | POST | Reboot the ESP32 |
@@ -132,6 +143,16 @@ work over `wss://` with no extra setup.
 | `/api/debug/system` | GET | Static system and WiFi info |
 | `/api/debug/live` | GET | Fast-changing relay/LED/state info |
 | `/events` | SSE | Real-time status stream |
+
+POST endpoints require an `X-F1-Sensor` header (any value). The dashboard
+sends it; a web page on another origin cannot without a CORS preflight the
+device never answers, so a stray site can't reboot the lamp or wipe its WiFi.
+From the shell:
+
+```sh
+curl -X POST -H 'X-F1-Sensor: 1' -H 'Content-Type: application/json' \
+     -d '{"brightness":64}' http://f1sensor.local/api/config
+```
 
 ## How It Works
 
@@ -158,7 +179,7 @@ work over `wss://` with no extra setup.
    | Yellow | Yellow comet chase |
    | VSC | Slow alternating yellow/off segments |
    | SC | Fast alternating yellow/off segments |
-   | Red | Alternating bright/dark red segments |
+   | Red | Smooth red breathing pulse |
    | Chequered | Scrolling black/white segments + white flash |
 
 5. **Web dashboard** — `http://f1sensor.local` shows live flag status, session
@@ -172,14 +193,32 @@ Two things can leave the lamp showing a flag that is no longer true: the relay
 losing its own upstream F1 link (it keeps serving last-known state, marked
 `stale`), or the lamp losing the relay entirely.
 
-Both are the same condition — no fresh state — so both are handled by one
-timer. After **5 minutes** without a message the relay vouched for, the LEDs
-fall back to idle rather than sitting on a safety car that ended an hour ago.
-The web UI shows `stale` and the age of the last fresh message throughout, so
-you can tell a quiet session from a broken link.
+Both are the same condition — the relay is not vouching for its state — so
+both are handled by one timer. The relay only sends a message when something
+changes, so silence on a healthy connection is not staleness; the clock only
+starts once the link drops or the relay says `stale: true`. After **5 minutes**
+of that, the LEDs fall back to idle rather than sitting on a safety car that
+ended an hour ago, and the delay queue is cleared so the next state from the
+relay queues from a clean slate. The web UI shows `stale` and the age of the
+last vouched-for state throughout, so you can tell a quiet session from a
+broken link.
 
-Reconnection uses exponential backoff, 5 s doubling to a 60 s cap, reset on a
-successful connect.
+Reconnection uses exponential backoff, 5 s doubling to a 60 s cap, reset once
+the relay delivers a message (not on the handshake, so a relay that accepts
+and immediately closes with 1013 "subscriber limit" still backs off).
+
+### Threading
+
+Three tasks touch shared state, and each piece of state has one owner:
+
+- **Relay task** — services the WebSocket. The library connects synchronously,
+  so a TCP timeout or TLS handshake blocks whichever task runs it; giving it
+  its own task keeps the LED animation smooth through relay outages. Parsed
+  messages cross to the loop task through a FreeRTOS queue.
+- **Loop task** — everything else: the delay queue, LED rendering, applying
+  config changes, NVS writes, SSE pushes.
+- **async_tcp task** — the web server. Its handlers only read state and stage
+  config changes; they never touch FastLED, the relay or flash directly.
 
 ## TODO
 
@@ -191,12 +230,16 @@ successful connect.
 
 ```
 src/
-  main.cpp             — setup/loop, relay message handler, flag queue logic
-  config.h             — hardware pins, NVS config struct
-  f1_state.h/cpp       — F1Flag/SessionStatus enums, state machine, delay queue
-  relay_client.h/cpp   — relay URL parsing, WebSocket client, auto-reconnect
+  main.cpp             — setup/loop, relay message handler, display policy
+  config.h             — hardware pins, NVS config struct, cross-task staging
+  f1_flags.h           — F1Flag/SessionStatus enums and wire names (pure)
+  flag_queue.h         — the delay queue (pure)
+  relay_url.h          — relay URL parser (pure)
+  f1_state.h/cpp       — session info + the flag queue
+  relay_client.h/cpp   — WebSocket client on its own task, auto-reconnect
   led_controller.h/cpp — FastLED animations per flag state
   web_server.h/cpp     — async HTTP server, REST API, SSE
+test/test_core/        — host-side Unity tests for the pure modules
 data/
   index.html, style.css, app.js — web dashboard (served from LittleFS)
   debug.html, debug.js          — debug page
