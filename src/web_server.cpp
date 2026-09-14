@@ -101,6 +101,19 @@ String F1WebServer::buildDebugLiveJson() {
     return out;
 }
 
+// Body handlers are called once per TCP chunk. Every body this API accepts
+// fits in one, so anything larger is refused rather than parsed piecemeal —
+// parsing each chunk separately would send one response per chunk.
+// Returns true when `data` holds the complete body and parsing may proceed.
+static bool wholeBody(AsyncWebServerRequest* req, size_t index, size_t len, size_t total) {
+    if (index + len != total) return false;          // more chunks coming
+    if (index != 0) {                                 // this is the last of several
+        req->send(413, "application/json", "{\"error\":\"body too large\"}");
+        return false;
+    }
+    return true;
+}
+
 // ── Startup ───────────────────────────────────────────────────────────────────
 
 void F1WebServer::begin() {
@@ -136,11 +149,16 @@ void F1WebServer::setupRoutes() {
     });
 
     // ── POST /api/config ──────────────────────────────────────────────────────
+    // Runs on the async_tcp task. Validates everything up front so a rejected
+    // request applies nothing, then stages the accepted fields for loop() to
+    // apply (see Config::stage). Nothing here touches hardware, NVS or the
+    // live Config fields.
     _server.on("/api/config", HTTP_POST,
         [](AsyncWebServerRequest* req) {},   // final handler (unused for body)
         nullptr,
         [](AsyncWebServerRequest* req, uint8_t* data, size_t len,
            size_t index, size_t total) {
+            if (!wholeBody(req, index, len, total)) return;
 
             JsonDocument doc;
             DeserializationError err = deserializeJson(doc, (const char*)data, len);
@@ -149,56 +167,35 @@ void F1WebServer::setupRoutes() {
                 return;
             }
 
-            // Validate the relay URL before applying anything, so a rejected
-            // request can't leave other fields half-applied to the hardware.
-            const bool hasRelayUrl = doc["relay_url"].is<const char*>();
-            String relayUrl;
-            if (hasRelayUrl) {
-                relayUrl = String(doc["relay_url"].as<const char*>());
-                relayUrl.trim();
+            Config::Staged staged;
+
+            if (doc["relay_url"].is<const char*>()) {
+                String url = doc["relay_url"].as<const char*>();
+                url.trim();
                 RelayUrl parsed;
-                if (relayUrl.length() > 0 && !parseRelayUrl(relayUrl.c_str(), parsed)) {
+                if (url.length() > 0 && !parseRelayUrl(url.c_str(), parsed)) {
                     req->send(400, "application/json",
                               "{\"error\":\"relay_url must be ws://host[:port][/path] "
                               "or wss://host[:port][/path]\"}");
                     return;
                 }
+                strlcpy(staged.relay_url, url.c_str(), sizeof(staged.relay_url));
+                staged.mask |= Config::RELAY_URL;
             }
-
-            bool changed = false;
-
             if (doc["led_count"].is<uint16_t>()) {
-                uint16_t v = constrain((uint16_t)doc["led_count"], 1, MAX_LEDS);
-                if (v != config.led_count) {
-                    config.led_count = v;
-                    changed = true;
-                    // notify led_controller via extern — handled in main
-                    extern void onLedCountChanged(uint16_t);
-                    onLedCountChanged(v);
-                }
+                staged.led_count = constrain((uint16_t)doc["led_count"], 1, MAX_LEDS);
+                staged.mask |= Config::LED_COUNT;
             }
             if (doc["brightness"].is<uint8_t>()) {
-                uint8_t v = doc["brightness"];
-                if (v != config.brightness) {
-                    config.brightness = v;
-                    changed = true;
-                    extern void onBrightnessChanged(uint8_t);
-                    onBrightnessChanged(v);
-                }
+                staged.brightness = doc["brightness"];
+                staged.mask |= Config::BRIGHTNESS;
             }
             if (doc["delay_ms"].is<uint32_t>()) {
-                uint32_t v = constrain((uint32_t)doc["delay_ms"], 0UL, 120000UL);
-                config.delay_ms = v;
-                changed = true;
-            }
-            if (hasRelayUrl && relayUrl != config.relay_url) {
-                config.relay_url = relayUrl;
-                changed = true;
-                extern void onRelayConfigChanged();
-                onRelayConfigChanged();
+                staged.delay_ms = constrain((uint32_t)doc["delay_ms"], 0UL, Config::DELAY_MS_MAX);
+                staged.mask |= Config::DELAY_MS;
             }
 
-            if (changed) config.save();
+            if (staged.mask) config.stage(staged);
             req->send(200, "application/json", "{\"ok\":true}");
         }
     );
@@ -235,6 +232,7 @@ void F1WebServer::setupRoutes() {
         nullptr,
         [this](AsyncWebServerRequest* req, uint8_t* data, size_t len,
                size_t index, size_t total) {
+            if (!wholeBody(req, index, len, total)) return;
 
             JsonDocument doc;
             if (deserializeJson(doc, (const char*)data, len)) {

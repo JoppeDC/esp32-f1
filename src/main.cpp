@@ -68,18 +68,37 @@ static void tickBuiltinLed(F1Flag flag) {
     }
 }
 
-// ── LED update hooks (called from web_server.cpp on config change) ────────────
+// ── Config changes (staged by the web handler, applied here on the loop task) ─
 
-void onLedCountChanged(uint16_t count) {
-    leds.setCount(count);
-}
+static void applyStagedConfig() {
+    Config::Staged s;
+    if (!config.takeStaged(s)) return;
 
-void onBrightnessChanged(uint8_t brightness) {
-    leds.setBrightness(brightness);
-}
+    bool changed = false;
+    if ((s.mask & Config::LED_COUNT) && s.led_count != config.led_count) {
+        config.led_count = s.led_count;
+        leds.setCount(s.led_count);
+        changed = true;
+    }
+    if ((s.mask & Config::BRIGHTNESS) && s.brightness != config.brightness) {
+        config.brightness = s.brightness;
+        leds.setBrightness(s.brightness);
+        changed = true;
+    }
+    if ((s.mask & Config::DELAY_MS) && s.delay_ms != config.delay_ms) {
+        config.delay_ms = s.delay_ms;
+        changed = true;
+    }
+    if ((s.mask & Config::RELAY_URL) && config.relay_url != s.relay_url) {
+        config.relay_url = s.relay_url;
+        relay.requestReconfigure(config.relay_url);
+        changed = true;
+    }
 
-void onRelayConfigChanged() {
-    relay.requestReconfigure(config.relay_url);
+    if (changed) {
+        config.save();
+        Serial.println("[Config] Saved");
+    }
 }
 
 // ── Relay message handler ─────────────────────────────────────────────────────
@@ -153,6 +172,7 @@ void setup() {
 // ── Loop ──────────────────────────────────────────────────────────────────────
 
 void loop() {
+    applyStagedConfig();
     relay.tick();
 
     // No fresh authoritative state: the relay lost F1, we lost the relay, or
