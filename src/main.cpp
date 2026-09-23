@@ -21,10 +21,6 @@ static uint32_t _blinkLastToggle = 0;
 static bool     _blinkOn         = false;
 // Duration to display CLEAR before falling back to IDLE while track remains CLEAR.
 static constexpr uint32_t CLEAR_DISPLAY_MS = 10000;
-// How long to keep showing a flag with no fresh state behind it. Covers both a
-// stale relay (upstream F1 link down) and a dead relay link — without this, a
-// lamp that loses its connection mid-session sits on SC or RED indefinitely.
-static constexpr uint32_t STALE_IDLE_TIMEOUT_MS = 300000;   // 5 min
 static F1Flag   _lastAppliedFlag = F1Flag::IDLE;
 static uint32_t _clearAppliedAt  = 0;
 static bool     _clearTimerActive = false;

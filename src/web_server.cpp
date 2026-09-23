@@ -20,6 +20,9 @@ String F1WebServer::buildStatusJson() {
     doc["relayState"]    = relay.getStateStr();
     doc["stale"]         = relay.isStale();
     doc["freshAgeMs"]    = relay.getFreshAgeMs();
+    // loop() masks the LEDs to IDLE while this is true, whatever `flag` and
+    // the queue say, so the dashboard must not promise the pending flag.
+    doc["expired"]       = relay.isStateExpired(STALE_IDLE_TIMEOUT_MS);
     doc["ip"]            = WiFi.localIP().toString();
     doc["rssi"]          = WiFi.RSSI();
     doc["delayMs"]       = config.delay_ms;

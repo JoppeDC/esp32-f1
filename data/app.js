@@ -47,9 +47,12 @@ const RELAY_META = {
 // countdown to the next queued flag is kept locally from the last snapshot.
 let currentMeta = FLAG_META.IDLE;
 let pending     = null;   // { label, dueAt } or null
+let expired     = false;  // no fresh state: the LEDs are held at IDLE
 
 function renderSub() {
-  if (pending) {
+  if (expired) {
+    flagSub.textContent = 'No fresh data from relay';
+  } else if (pending) {
     const secs = Math.max(0, Math.ceil((pending.dueAt - Date.now()) / 1000));
     flagSub.textContent = `→ ${pending.label} in ${secs} s`;
   } else {
@@ -60,8 +63,10 @@ setInterval(renderSub, 500);
 
 /* ── Apply a status snapshot to the UI ───────────────────────────────────── */
 function applyStatus(d) {
-  // Flag indicator
-  currentMeta = FLAG_META[d.flag] || FLAG_META.IDLE;
+  // Flag indicator. While expired the LEDs show IDLE regardless of the queue,
+  // so mirror that rather than the queued flag.
+  expired = !!d.expired;
+  currentMeta = (!expired && FLAG_META[d.flag]) || FLAG_META.IDLE;
   flagIndicator.className = 'flag-indicator ' + currentMeta.css;
   flagName.textContent = currentMeta.label;
 

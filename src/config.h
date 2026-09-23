@@ -14,6 +14,11 @@
 #endif
 #define MAX_LEDS      500   // buffer ceiling; actual count is runtime-configurable
 
+// How long to keep showing a flag with no fresh state behind it. Covers both a
+// stale relay (upstream F1 link down) and a dead relay link — without this, a
+// lamp that loses its connection mid-session sits on SC or RED indefinitely.
+static constexpr uint32_t STALE_IDLE_TIMEOUT_MS = 300000;   // 5 min
+
 // ── Runtime configuration (persisted to NVS) ─────────────────────────────────
 // Tunable from the web UI; values below are first-boot defaults used when
 // no value is present in NVS (fresh flash, after NVS erase, etc.).
